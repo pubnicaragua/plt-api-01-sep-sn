@@ -1,0 +1,14 @@
+# Node
+node_modules/
+dist/
+coverage/
+
+# Env
+.env
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.iml
+*.log
