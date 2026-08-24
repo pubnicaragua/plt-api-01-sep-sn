@@ -1,0 +1,77 @@
+export type TripStatus = 'Pendiente' | 'Asignado' | 'En camino' | 'En entrega' | 'Completado' | 'Cancelado'
+export type DriverStatus = 'Disponible' | 'En viaje' | 'En entrega' | 'Fuera de servicio'
+export type IncidentPriority = 'Baja' | 'Media' | 'Alta' | 'Crítica'
+export type IncidentStatus = 'Abierta' | 'En proceso' | 'Resuelta'
+
+export interface Trip {
+  id: string
+  client: string
+  driver: string
+  origin: string
+  destination: string
+  date: string
+  packages: number
+  status: TripStatus
+  latitude?: number
+  longitude?: number
+  description?: string
+  recipientName?: string
+  recipientPhone?: string
+  fragile?: boolean
+}
+
+export interface Driver {
+  id: string
+  name: string
+  phone: string
+  vehicle: string
+  plate: string
+  status: DriverStatus
+  route: string
+  latitude: number
+  longitude: number
+}
+
+export interface Client {
+  id: string
+  name: string
+  type: string
+  phone: string
+  email: string
+  trips: number
+  activeRequests: number
+  status: 'Activo' | 'Suspendido'
+}
+
+export interface Incident {
+  id: string
+  trip: string
+  driver: string
+  client: string
+  type: string
+  priority: IncidentPriority
+  status: IncidentStatus
+}
+
+export interface HistoryEvent {
+  id: string
+  time: string
+  date: string
+  type: 'Entrega' | 'Asignación' | 'Solicitud' | 'Incidencia' | 'Recogida' | 'Conexión'
+  title: string
+  detail: string
+  color: 'blue' | 'mint' | 'gold' | 'red' | 'slate'
+}
+
+export interface ReportSummary {
+  totalTrips: number
+  completedTrips: number
+  cancelledTrips: number
+  averageDeliveryMinutes: number
+  weeklyTrips: number[]
+  weeklyLabels: string[]
+  dailyDeliveries: number[]
+  dailyLabels: string[]
+  topDrivers: Array<{ name: string; trips: number }>
+  topClients: Array<{ name: string; trips: number }>
+}
