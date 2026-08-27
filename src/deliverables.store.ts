@@ -101,6 +101,55 @@ const PROCESS_SEED: SeedDeliverable[] = [
   { id: 'data-governance', title: 'Estructura, mantenimiento y propiedad de datos', area: 'API / Datos', summary: 'Modelo aprobado, acceso, retención, respaldos, restauración y responsabilidades.', status: 'backlog', priority: 'Alta', evidence: 'SQLite cubre el seguimiento local; gobierno productivo pendiente.', source: 'Pendiente' },
 ]
 
+const ROLE_SEED: SeedDeliverable[] = [
+  { id: 'role-admin', title: 'Rol 01 · Administrador General', area: 'Roles y permisos', summary: 'Usuarios, roles, clientes, conductores, vehículos, solicitudes, pagos, incidencias, tarifas, reportes y auditoría.', status: 'backlog', priority: 'Alta', evidence: 'Alcance contractual identificado; permisos ejecutables pendientes.', source: 'Pendiente' },
+  { id: 'role-management', title: 'Rol 02 · Gerencia', area: 'Roles y permisos', summary: 'Consulta y exportación de dashboard, operación, costos, pagos, incidencias y reportes sin mutaciones sensibles.', status: 'backlog', priority: 'Alta', evidence: 'Alcance contractual identificado; permisos de solo consulta pendientes.', source: 'Pendiente' },
+  { id: 'role-operations', title: 'Rol 03 · Operaciones o Despacho', area: 'Roles y permisos', summary: 'Solicitudes, validación operativa, asignaciones, tracking, estados, retrasos y cancelaciones autorizadas.', status: 'backlog', priority: 'Alta', evidence: 'Flujo operativo identificado; guardas y permisos pendientes.', source: 'Pendiente' },
+  { id: 'role-finance', title: 'Rol 04 · Finanzas o Caja', area: 'Roles y permisos', summary: 'Montos, saldos, pagos, parciales, comprobantes, crédito, contra factura y reportes financieros.', status: 'backlog', priority: 'Alta', evidence: 'Módulo financiero identificado; permisos y validación pendientes.', source: 'Pendiente' },
+  { id: 'role-support', title: 'Rol 05 · Soporte', area: 'Roles y permisos', summary: 'Casos, mensajes, adjuntos, solicitudes de evidencia, escalamiento, resolución y cierre.', status: 'backlog', priority: 'Alta', evidence: 'Canal de soporte identificado; permisos y trazabilidad pendientes.', source: 'Pendiente' },
+  { id: 'role-driver', title: 'Rol 06 · Conductor', area: 'Roles y permisos', summary: 'Servicios disponibles y asignados, estados, ubicación, incidencias, evidencias y confirmación de entrega.', status: 'backlog', priority: 'Alta', evidence: 'Interfaz contractual identificada; sesión y permisos móviles pendientes.', source: 'Pendiente' },
+  { id: 'role-corporate-user', title: 'Rol 07 · Usuario Corporativo', area: 'Roles y permisos', summary: 'Solicitudes, direcciones, cotizaciones, pagos reportados, tracking, comprobantes y soporte de su empresa.', status: 'backlog', priority: 'Alta', evidence: 'Portal contractual identificado; aislamiento por empresa pendiente.', source: 'Pendiente' },
+  { id: 'role-store', title: 'Rol 08 · Tienda o Recepción', area: 'Roles y permisos', summary: 'Recepciones, validación física, peso, dimensiones, fotografías, observaciones e historial de carga.', status: 'backlog', priority: 'Alta', evidence: 'Punto de recepción incluido en el alcance; permisos y bandeja pendientes.', source: 'Pendiente' },
+]
+
+const STATE_SEED: SeedDeliverable[] = [
+  'Pedido creado', 'Pendiente de validación', 'Validado', 'Programado', 'Buscando conductor',
+  'Conductor asignado', 'En camino al retiro', 'Llegó al retiro', 'Carga en proceso de retiro',
+  'Carga retirada', 'En camino a la entrega', 'Llegó al destino', 'Entrega en proceso',
+  'Entregado', 'Entregado con observaciones', 'Finalizado', 'Cancelado',
+].map((title, index) => ({
+  id: `state-${String(index + 1).padStart(2, '0')}`,
+  title: `Estado ${String(index + 1).padStart(2, '0')} · ${title}`,
+  area: 'Estados operativos',
+  summary: `Transición y reglas del estado “${title}” dentro del ciclo de solicitud, retiro, traslado y entrega.`,
+  status: 'backlog',
+  priority: 'Alta',
+  evidence: 'Estado definido en el alcance; transición, permisos y auditoría pendientes.',
+  source: 'Pendiente',
+}))
+
+const REPORT_SEED: SeedDeliverable[] = [
+  'Solicitudes por periodo y estado',
+  'Kilómetros por solicitud',
+  'Kilómetros por conductor',
+  'Kilómetros y utilización por vehículo',
+  'Solicitudes por Empresa Solicitante',
+  'Distancia y tiempo estimado frente a registrado',
+  'Consumo y costo estimado de combustible',
+  'Desempeño operativo de conductores',
+  'Pagos, saldos y estados de validación',
+  'Incidencias por tipo, responsable y estado',
+].map((title, index) => ({
+  id: `report-${String(index + 1).padStart(2, '0')}`,
+  title: `Reporte ${String(index + 1).padStart(2, '0')} · ${title}`,
+  area: 'Reportes',
+  summary: `Tabla, totales, filtros y fuente de datos para el reporte contractual “${title}”.`,
+  status: 'backlog',
+  priority: 'Alta',
+  evidence: 'Reporte enumerado en el alcance; consulta, filtros y exportación pendientes.',
+  source: 'Pendiente',
+}))
+
 const SEED: SeedDeliverable[] = [
   { id: 'web-shell', title: 'Panel administrativo Vite + React', area: 'Web superadmin', summary: 'Shell visual con navegación de operaciones, métricas, tablas y estados de conexión.', status: 'done', priority: 'Alta', evidence: 'web/src/App.tsx, web/src/styles.css; build Vite validado.', source: 'Verificado' },
   { id: 'api-contract', title: 'Contrato base de API NestJS', area: 'API', summary: 'Health, auth de prototipo, viajes, asignaciones, tracking, reportes e incidencias.', status: 'done', priority: 'Alta', evidence: 'api-incoex/src/*; build NestJS y pruebas HTTP locales.', source: 'Verificado' },
@@ -149,6 +198,9 @@ const SEED: SeedDeliverable[] = [
   { id: 'backup-restore', title: 'Backups y recuperación', area: 'Infraestructura', summary: 'Política de respaldos, restauración probada y retención de datos operativos.', status: 'backlog', priority: 'Media', evidence: 'SQLite local no sustituye una política de continuidad operativa.', source: 'Pendiente' },
   ...CONTRACT_VIEW_SEED,
   ...PROCESS_SEED,
+  ...ROLE_SEED,
+  ...STATE_SEED,
+  ...REPORT_SEED,
 ]
 
 @Injectable()
