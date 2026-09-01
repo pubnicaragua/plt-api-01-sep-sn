@@ -1,9 +1,15 @@
 import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
+import { IsIn } from 'class-validator'
 import type { TripStatus } from './domain'
 import { AssignTripDto } from './dto/assign-trip.dto'
 import { CreateTripDto } from './dto/create-trip.dto'
 import { OperationsStore } from './operations.store'
+
+class UpdateTripStatusDto {
+  @IsIn(['Pendiente', 'Asignado', 'En camino', 'En entrega', 'Completado', 'Cancelado'])
+  status!: TripStatus
+}
 
 @ApiTags('trips')
 @Controller('trips')
@@ -27,4 +33,8 @@ export class TripsController {
   @Patch(':id/assign')
   @ApiOperation({ summary: 'Asignar un conductor disponible a un viaje' })
   assign(@Param('id') id: string, @Body() body: AssignTripDto) { return this.store.assignTrip(id, body.driverId) }
+
+  @Patch(':id/status')
+  @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, cancelado…)' })
+  updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status) }
 }

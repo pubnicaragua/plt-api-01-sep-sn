@@ -1,9 +1,40 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
+import { mkdirSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripStatus } from './domain'
 
 @Injectable()
-export class OperationsStore {
-  private readonly trips: Trip[] = [
+export class OperationsStore implements OnModuleDestroy {
+  private readonly db: DatabaseSync
+  private readonly trips: Trip[]
+
+  constructor() {
+    const databasePath = resolve(process.env.INCOEX_DB_PATH ?? 'data/incoex-local.sqlite')
+    mkdirSync(dirname(databasePath), { recursive: true })
+    this.db = new DatabaseSync(databasePath, { timeout: 5000 })
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS trips (
+        id TEXT PRIMARY KEY,
+        client TEXT NOT NULL,
+        driver TEXT NOT NULL,
+        origin TEXT NOT NULL,
+        destination TEXT NOT NULL,
+        trip_date TEXT NOT NULL,
+        packages INTEGER NOT NULL,
+        status TEXT NOT NULL,
+        description TEXT,
+        recipient_name TEXT,
+        recipient_phone TEXT,
+        fragile INTEGER NOT NULL DEFAULT 0
+      )
+    `)
+    const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM trips').get() as { count: number }).count)
+    if (count === 0) this.seedTrips()
+    this.trips = this.loadTrips()
+  }
+
+  private readonly seedData: Trip[] = [
     { id: '#4791', client: 'Logística Nica SA', driver: 'Sin asignar', origin: 'Altamira', destination: 'Carretera Masaya', date: '27 Ago', packages: 5, status: 'Pendiente' },
     { id: '#4790', client: 'Farmacias Kielsa', driver: 'Juan Pérez', origin: 'Villa Fontana', destination: 'Las Colinas', date: '27 Ago', packages: 2, status: 'Asignado' },
     { id: '#4789', client: 'TecnoPartes Nicaragua', driver: 'Roberto Sánchez', origin: 'Ciudad Jardín', destination: 'Los Robles', date: '27 Ago', packages: 1, status: 'En camino' },
@@ -48,16 +79,61 @@ export class OperationsStore {
     { id: 'EVT-006', time: '09:20', date: '27 Ago', type: 'Conexión', title: 'Conductor conectado', detail: 'Roberto Sánchez · Nissan NV200', color: 'slate' },
   ]
 
+  private seedTrips() {
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const trip of this.seedData) this.writeTrip(insert, trip)
+  }
+
+  private loadTrips() {
+    const rows = this.db.prepare('SELECT id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile FROM trips ORDER BY rowid DESC').all() as unknown as Array<Record<string, unknown>>
+    return rows.map((row) => ({
+      id: String(row.id),
+      client: String(row.client),
+      driver: String(row.driver),
+      origin: String(row.origin),
+      destination: String(row.destination),
+      date: String(row.trip_date),
+      packages: Number(row.packages),
+      status: row.status as TripStatus,
+      description: row.description?.toString(),
+      recipientName: row.recipient_name?.toString(),
+      recipientPhone: row.recipient_phone?.toString(),
+      fragile: Boolean(row.fragile),
+    }))
+  }
+
+  private writeTrip(statement: ReturnType<DatabaseSync['prepare']>, trip: Trip) {
+    statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0)
+  }
+
+  private persistTrip(trip: Trip) {
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.id)
+  }
+
+  onModuleDestroy() { this.db.close() }
+
   getSummary() {
+    const activeTrips = this.trips.filter((trip) => ['Asignado', 'En camino', 'En entrega'].includes(trip.status)).length + 4
+    const pendingTrips = this.trips.filter((trip) => trip.status === 'Pendiente').length + 3
+    const packagesInTransit = this.trips
+      .filter((trip) => ['Asignado', 'En camino', 'En entrega'].includes(trip.status))
+      .reduce((sum, trip) => sum + trip.packages, 0) + 4
+    const openIncidents = this.incidents.filter((incident) => incident.status !== 'Resuelta').length
+    const delayedTrips = this.incidents.filter((incident) => incident.type === 'Retraso' && incident.status !== 'Resuelta').length + 2
+    const availableDrivers = this.drivers.filter((driver) => driver.status === 'Disponible').length + 8
     return {
       tripsToday: 47,
-      activeTrips: this.trips.filter((trip) => ['Asignado', 'En camino', 'En entrega'].includes(trip.status)).length + 4,
-      pendingTrips: this.trips.filter((trip) => trip.status === 'Pendiente').length + 3,
+      activeTrips,
+      pendingTrips,
       completedTrips: 32,
       activeDrivers: this.drivers.filter((driver) => driver.status !== 'Fuera de servicio').length + 14,
+      availableDrivers,
       registeredClients: 156,
-      packagesInTransit: 28,
-      openIncidents: this.incidents.filter((incident) => incident.status !== 'Resuelta').length,
+      activeClients: 21,
+      packagesInTransit,
+      delayedTrips,
+      openIncidents,
     }
   }
 
@@ -120,6 +196,7 @@ export class OperationsStore {
       fragile: input.fragile,
     }
     this.trips.unshift(trip)
+    this.persistTrip(trip)
     return trip
   }
 
@@ -171,6 +248,7 @@ export class OperationsStore {
     trip.status = 'Asignado'
     driver.status = 'En viaje'
     driver.route = `${trip.origin} → ${trip.destination}`
+    this.persistTrip(trip)
     return trip
   }
 
@@ -187,5 +265,55 @@ export class OperationsStore {
         { latitude: 12.114, longitude: -86.244, label: 'Destino' },
       ],
     }
+  }
+
+  private readonly allowedTransitions: Record<TripStatus, TripStatus[]> = {
+    Pendiente: ['Asignado', 'Cancelado'],
+    Asignado: ['En camino', 'Cancelado'],
+    'En camino': ['En entrega', 'Cancelado'],
+    'En entrega': ['Completado', 'Cancelado'],
+    Completado: [],
+    Cancelado: [],
+  }
+
+  updateTripStatus(id: string, status: TripStatus) {
+    const trip = this.getTrip(id)
+    if (status === trip.status) return trip
+    const allowed = this.allowedTransitions[trip.status]
+    if (!allowed.includes(status)) {
+      throw new BadRequestException(`No se puede pasar el viaje de ${trip.status} a ${status}`)
+    }
+    if (status === 'Cancelado' && trip.driver !== 'Sin asignar') {
+      const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
+      if (driver) {
+        driver.status = 'Disponible'
+        driver.route = 'Sin viaje activo'
+      }
+    }
+    trip.status = status
+    this.persistTrip(trip)
+    return trip
+  }
+
+  exportCsv(collection: 'trips' | 'drivers' | 'clients' | 'incidents') {
+    const escape = (value: string | number) => {
+      const text = String(value).replaceAll('"', '""')
+      return text.includes(',') || text.includes('"') || text.includes('\n') ? `"${text}"` : text
+    }
+    const rows: string[] = []
+    if (collection === 'trips') {
+      rows.push('ID,Cliente,Conductor,Origen,Destino,Fecha,Paquetes,Estado')
+      for (const trip of this.trips) rows.push([trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status].map(escape).join(','))
+    } else if (collection === 'drivers') {
+      rows.push('ID,Nombre,Teléfono,Vehículo,Placa,Estado,Ruta')
+      for (const driver of this.drivers) rows.push([driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route].map(escape).join(','))
+    } else if (collection === 'clients') {
+      rows.push('ID,Nombre,Tipo,Teléfono,Email,Viajes,SolicitudesActivas,Estado')
+      for (const client of this.clients) rows.push([client.id, client.name, client.type, client.phone, client.email, client.trips, client.activeRequests, client.status].map(escape).join(','))
+    } else if (collection === 'incidents') {
+      rows.push('ID,Viaje,Conductor,Cliente,Tipo,Prioridad,Estado')
+      for (const incident of this.incidents) rows.push([incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status].map(escape).join(','))
+    }
+    return rows.join('\n')
   }
 }

@@ -12,6 +12,10 @@ import { ReportsController } from './reports.controller'
 import { TrackingController } from './tracking.controller'
 import { DeliverablesController } from './deliverables.controller'
 import { DeliverablesStore } from './deliverables.store'
+import { VehiclesController } from './vehicles.controller'
+import { VehiclesStore } from './vehicles.store'
+import { UsersController } from './users.controller'
+import { UsersStore } from './users.store'
 
 @Module({
   controllers: [
@@ -26,7 +30,9 @@ import { DeliverablesStore } from './deliverables.store'
     ReportsController,
     TrackingController,
     DeliverablesController,
+    VehiclesController,
+    UsersController,
   ],
-  providers: [OperationsStore, DeliverablesStore],
+  providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore],
 })
 export class AppModule {}
