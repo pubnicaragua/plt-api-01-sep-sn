@@ -1,4 +1,4 @@
-import { IsBoolean, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
 
 export class CreateTripDto {
   @IsString()
@@ -32,4 +32,37 @@ export class CreateTripDto {
   @IsOptional()
   @IsBoolean()
   fragile?: boolean
+
+  @IsOptional()
+  @IsNumber()
+  originLat?: number
+
+  @IsOptional()
+  @IsNumber()
+  originLng?: number
+
+  @IsOptional()
+  @IsNumber()
+  destinationLat?: number
+
+  @IsOptional()
+  @IsNumber()
+  destinationLng?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  distanceKm?: number
+
+  @IsOptional()
+  @IsIn(['Urbano', 'Express', 'Programado'])
+  serviceType?: 'Urbano' | 'Express' | 'Programado'
+
+  @IsOptional()
+  @IsString()
+  contactName?: string
+
+  @IsOptional()
+  @IsString()
+  contactPhone?: string
 }

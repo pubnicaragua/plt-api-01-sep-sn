@@ -15,8 +15,8 @@ export class ReportsController {
   @Get('export/:collection')
   @Header('Content-Type', 'text/csv; charset=utf-8')
   @Header('Content-Disposition', 'attachment; filename="incoex-report.csv"')
-  @ApiOperation({ summary: 'Exportar CSV de viajes, conductores, clientes o incidencias' })
-  export(@Param('collection') collection: 'trips' | 'drivers' | 'clients' | 'incidents') {
+  @ApiOperation({ summary: 'Exportar CSV de viajes, conductores, clientes, incidencias o paquetes' })
+  export(@Param('collection') collection: 'trips' | 'drivers' | 'clients' | 'incidents' | 'packages') {
     return this.store.exportCsv(collection)
   }
 }

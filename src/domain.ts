@@ -18,6 +18,15 @@ export interface Trip {
   recipientName?: string
   recipientPhone?: string
   fragile?: boolean
+  originLat?: number
+  originLng?: number
+  destinationLat?: number
+  destinationLng?: number
+  distanceKm?: number
+  estimatedCostCs?: number
+  serviceType?: 'Urbano' | 'Express' | 'Programado'
+  contactName?: string
+  contactPhone?: string
 }
 
 export interface Driver {
@@ -38,6 +47,7 @@ export interface Client {
   type: string
   phone: string
   email: string
+  address?: string
   trips: number
   activeRequests: number
   status: 'Activo' | 'Suspendido'
@@ -67,7 +77,9 @@ export interface ReportSummary {
   totalTrips: number
   completedTrips: number
   cancelledTrips: number
-  averageDeliveryMinutes: number
+  averageDistanceKm: number
+  totalDistanceKm: number
+  totalRevenueCs: number
   weeklyTrips: number[]
   weeklyLabels: string[]
   dailyDeliveries: number[]

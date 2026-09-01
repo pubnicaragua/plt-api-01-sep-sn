@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { UsersStore, type UserRole } from './users.store'
@@ -56,5 +56,11 @@ export class UsersController {
   @ApiOperation({ summary: 'Cambiar rol o estado de un usuario' })
   updateUser(@Param('id') id: string, @Body() body: UpdateUserDto) {
     return this.store.updateUser(id, body)
+  }
+
+  @Delete('users/:id')
+  @ApiOperation({ summary: 'Eliminar un usuario (el administrador principal está protegido)' })
+  deleteUser(@Param('id') id: string) {
+    return this.store.deleteUser(id)
   }
 }

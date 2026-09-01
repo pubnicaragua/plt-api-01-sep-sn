@@ -123,6 +123,13 @@ export class UsersStore implements OnModuleDestroy {
     return toUser(row)
   }
 
+  deleteUser(id: string) {
+    if (id === 'usr-001') throw new BadRequestException('El administrador principal no puede eliminarse')
+    const user = this.getUser(id)
+    this.db.prepare('DELETE FROM app_users WHERE id = ?').run(id)
+    return { deleted: id, name: user.name }
+  }
+
   onModuleDestroy() { this.db.close() }
 
   private seed() {

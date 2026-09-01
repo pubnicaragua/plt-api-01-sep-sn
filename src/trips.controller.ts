@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post, Query } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsIn } from 'class-validator'
 import type { TripStatus } from './domain'
@@ -37,4 +37,8 @@ export class TripsController {
   @Patch(':id/status')
   @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, cancelado…)' })
   updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status) }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Eliminar un viaje (libera al conductor si estaba asignado)' })
+  delete(@Param('id') id: string) { return this.store.deleteTrip(id) }
 }
