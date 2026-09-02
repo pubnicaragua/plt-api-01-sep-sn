@@ -74,6 +74,7 @@ export class OperationsStore implements OnModuleDestroy {
         active_requests INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL DEFAULT 'Activo'
       );
+      CREATE TABLE IF NOT EXISTS incoex_meta (key TEXT PRIMARY KEY, value TEXT);
       CREATE TABLE IF NOT EXISTS drivers (
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
@@ -216,6 +217,11 @@ export class OperationsStore implements OnModuleDestroy {
     const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if (!driverColumns.has('external')) this.db.exec('ALTER TABLE drivers ADD COLUMN external INTEGER NOT NULL DEFAULT 0')
+    const migrationMarker = this.db.prepare("SELECT 1 AS present FROM incoex_meta WHERE key = ?")
+    if (!migrationMarker.get('drv_external_v1')) {
+      this.db.prepare("UPDATE drivers SET external = 1 WHERE name IN ('Miguel Torres', 'José Martínez') AND external = 0").run()
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('drv_external_v1', '1')").run()
+    }
   }
 
   private migrateIncidents() {

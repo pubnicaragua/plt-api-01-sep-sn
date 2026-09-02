@@ -145,6 +145,11 @@ export class VehiclesStore implements OnModuleDestroy {
       const backfill = this.db.prepare('UPDATE vehicles SET fuel_type = ?, consumption_l_per_km = ?, price_cs = ?, odometer_km = ? WHERE plate = ?')
       for (const vehicle of VEHICLE_SEED) backfill.run(vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.plate)
     }
+    this.db.exec('CREATE TABLE IF NOT EXISTS incoex_meta (key TEXT PRIMARY KEY, value TEXT)')
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('veh_external_v1')) {
+      this.db.prepare("UPDATE vehicles SET external = 1 WHERE plate IN ('M 567-890', 'M 789-012') AND external = 0").run()
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_external_v1', '1')").run()
+    }
   }
 
   list() {
