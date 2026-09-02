@@ -9,6 +9,12 @@ class UpdateIncidentStatusDto {
   status!: IncidentStatus
 }
 
+class UpdateIncidentEvidenceDto {
+  @IsString()
+  @IsNotEmpty()
+  evidence!: string
+}
+
 class CreateIncidentDto {
   @IsString()
   @IsNotEmpty()
@@ -74,9 +80,15 @@ export class IncidentsController {
     })
   }
 
-  @Patch(':id/status')
-  @ApiOperation({ summary: 'Transición de la incidencia: abierta, en proceso o resuelta' })
+@Patch(':id/status')
+  @ApiOperation({ summary: 'Transici��n de la incidencia: abierta, en proceso o resuelta' })
   updateStatus(@Param('id') id: string, @Body() body: UpdateIncidentStatusDto) {
     return this.store.updateIncidentStatus(id, body.status)
+  }
+
+  @Patch(':id/evidence')
+  @ApiOperation({ summary: 'Adjuntar o reemplazar la evidencia fotogr��fica de una incidencia' })
+  updateEvidence(@Param('id') id: string, @Body() body: UpdateIncidentEvidenceDto) {
+    return this.store.updateIncidentEvidence(id, body.evidence)
   }
 }

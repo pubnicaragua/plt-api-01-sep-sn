@@ -27,6 +27,8 @@ import { CortesStore } from './cortes.store'
 import { FuelController } from './fuel.controller'
 import { FuelStore } from './fuel.store'
 import { WhatsAppController } from './whatsapp.controller'
+import { TarifasController } from './tarifas.controller'
+import { TarifasStore } from './tarifas.store'
 
 @Module({
   controllers: [
@@ -50,7 +52,8 @@ import { WhatsAppController } from './whatsapp.controller'
     CortesController,
     WhatsAppController,
     FuelController,
+    TarifasController,
   ],
-  providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore, FinanceStore, CortesStore, FuelStore],
+  providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore, FinanceStore, CortesStore, FuelStore, TarifasStore],
 })
 export class AppModule {}

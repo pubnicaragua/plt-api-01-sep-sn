@@ -815,6 +815,14 @@ getClientProfile(id: string) {
     return incident
   }
 
+  updateIncidentEvidence(id: string, evidence: string) {
+    const incident = this.incidents.find((candidate) => candidate.id === id)
+    if (!incident) throw new NotFoundException('Incidencia no encontrada')
+    incident.evidence = evidence
+    this.db.prepare('UPDATE incidents SET evidence = ? WHERE id = ?').run(evidence, id)
+    return incident
+  }
+
   getTrackingOverview() {
     return {
       activeOperations: this.getSummary().activeTrips,

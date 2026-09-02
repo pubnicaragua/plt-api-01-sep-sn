@@ -30,14 +30,23 @@ export class PlacesController {
   }
 
   private localSuggestions(term: string) {
-    const lower = term.toLowerCase()
+    const lower = term.toLowerCase().trim()
+    const tokens = lower.split(/\s+/).filter((token) => token.length >= 2)
     const scored = MANAGUA_PLACES.map((place) => {
       const nameLower = place.name.toLowerCase()
+      const zoneLower = place.zone.toLowerCase()
+      const haystack = `${nameLower} ${zoneLower}`
       let score = -1
       if (nameLower === lower) score = 100
-      else if (nameLower.startsWith(lower)) score = 60
-      else if (nameLower.includes(lower)) score = 30
-      else if (place.zone.toLowerCase().includes(lower)) score = 10
+      else if (nameLower.startsWith(lower)) score = 90
+      else if (tokens.length > 0 && tokens.every((token) => nameLower.includes(token)))
+        score = 70 + tokens.length
+      else if (tokens.length > 0 && tokens.every((token) => haystack.includes(token)))
+        score = 45
+      else if (tokens.length === 1 && nameLower.includes(tokens[0]))
+        score = 30
+      else if (tokens.length === 1 && zoneLower.includes(tokens[0]))
+        score = 12
       return { place, score }
     })
       .filter(({ score }) => score >= 0)
@@ -79,20 +88,12 @@ export class PlacesController {
 
       if (data.status !== 'OK' || !data.predictions) return []
 
-      const predictions = data.predictions.slice(0, 8)
-      const outs: PlaceOut[] = []
-      for (const prediction of predictions) {
-        const detail = await this.googlePlaceDetail(prediction.place_id)
-        outs.push({
-          placeId: prediction.place_id,
-          description: prediction.description,
-          main: prediction.structured_formatting?.main_text ?? prediction.description,
-          secondary: prediction.structured_formatting?.secondary_text ?? '',
-          latitude: detail?.latitude,
-          longitude: detail?.longitude,
-        })
-      }
-      return outs
+      return data.predictions.slice(0, 8).map((prediction) => ({
+        placeId: prediction.place_id,
+        description: prediction.description,
+        main: prediction.structured_formatting?.main_text ?? prediction.description,
+        secondary: prediction.structured_formatting?.secondary_text ?? '',
+      }))
     } catch {
       return []
     }
