@@ -201,6 +201,12 @@ export class VehiclesStore implements OnModuleDestroy {
     if (vehicle.status === 'Fuera de servicio' || vehicle.status === 'Mantenimiento') {
       throw new BadRequestException(`El vehículo está en estado ${vehicle.status} y no puede asignarse`)
     }
+    if (driver && driver !== 'Sin asignar') {
+      const owner = (this.list() as any[]).find((other) => other.id !== id && other.driver === driver)
+      if (owner) {
+        throw new BadRequestException(`El conductor ${driver} ya está asignado al vehículo ${owner.plate}`)
+      }
+    }
     this.db.prepare('UPDATE vehicles SET driver = ? WHERE id = ?').run(driver || 'Sin asignar', id)
     return this.get(id)
   }
