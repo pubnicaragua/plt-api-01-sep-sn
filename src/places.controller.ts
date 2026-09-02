@@ -57,6 +57,37 @@ export class PlacesController {
     return merged.slice(0, 10)
   }
 
+  @Get('detail')
+  @ApiOperation({ summary: 'Coordenadas de un lugar sugerido (catálogo local o Google Places)' })
+  async detail(@Query('place_id') placeId: string) {
+    if (!placeId) return null
+    if (placeId.startsWith('mg-')) {
+      const local = MANAGUA_PLACES.find((place) => `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` === placeId)
+      if (local) return { placeId, latitude: local.latitude, longitude: local.longitude }
+    }
+    const key = process.env.GOOGLE_MAPS_API_KEY
+    if (key && key.trim().length >= 20) {
+      try {
+        const url = new URL('https://maps.googleapis.com/maps/api/place/details/json')
+        url.searchParams.set('place_id', placeId)
+        url.searchParams.set('fields', 'geometry')
+        url.searchParams.set('language', 'es')
+        url.searchParams.set('key', key)
+        const response = await fetch(url)
+        const data = (await response.json()) as {
+          status?: string
+          result?: { geometry?: { location?: { lat: number; lng: number } } }
+        }
+        if (data.status === 'OK' && data.result?.geometry?.location) {
+          return { placeId, latitude: data.result.geometry.location.lat, longitude: data.result.geometry.location.lng }
+        }
+      } catch {
+        // sin coordenadas; el cliente queda con el lugar seleccionado sin punto
+      }
+    }
+    return null
+  }
+
   private async googleSuggestions(term: string) {
     const key = process.env.GOOGLE_MAPS_API_KEY
     if (!key || key.trim().length < 20) return []
