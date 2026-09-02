@@ -1067,7 +1067,7 @@ export class OperationsStore implements OnModuleDestroy {
       estimatedCostCs: trip.estimatedCostCs ?? 0,
       route,
       driverLocation,
-      shareUrl: `${process.env.WEB_TRACK_BASE_URL ?? 'https://plt-web-01-sep-sn.vercel.app'}/track/${encodeURIComponent(trip.id)}`,
+      shareUrl: `${process.env.WEB_TRACK_BASE_URL ?? 'https://plt-webadmin23-testing.vercel.app'}/track/${encodeURIComponent(trip.id)}`,
     }
   }
 
