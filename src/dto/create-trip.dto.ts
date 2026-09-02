@@ -59,6 +59,10 @@ export class CreateTripDto {
   serviceType?: 'Urbano' | 'Express' | 'Programado'
 
   @IsOptional()
+  @IsIn(['Moto', 'Vehículo', 'Camión'])
+  transport?: 'Moto' | 'Vehículo' | 'Camión'
+
+  @IsOptional()
   @IsString()
   contactName?: string
 

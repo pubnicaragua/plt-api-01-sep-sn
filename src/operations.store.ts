@@ -544,13 +544,14 @@ export class OperationsStore implements OnModuleDestroy {
     destinationLng?: number
     distanceKm?: number
     serviceType?: 'Urbano' | 'Express' | 'Programado'
+    transport?: 'Moto' | 'Vehículo' | 'Camión'
     contactName?: string
     contactPhone?: string
   }) {
     const nextNumber = 4792 + this.trips.length
-    const { baseFeeCs, farePerKmCs } = this.settings.get()
     const distanceKm = Math.max(0, input.distanceKm ?? 0)
-    const estimatedCostCs = Number((baseFeeCs + distanceKm * farePerKmCs).toFixed(2))
+    const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
+    const estimatedCostCs = Number((rate.baseFeeCs + distanceKm * rate.farePerKmCs).toFixed(2))
     const trip: Trip = {
       id: `#${nextNumber}`,
       client: input.client,

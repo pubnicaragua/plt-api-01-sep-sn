@@ -3,12 +3,22 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
+export interface VehicleRate {
+  baseFeeCs: number
+  farePerKmCs: number
+}
+
 export interface AppSettings {
   dollarRate: number
   fuelPriceGasolineCs: number
   fuelPriceDieselCs: number
   baseFeeCs: number
   farePerKmCs: number
+  vehicleRates: {
+    Moto: VehicleRate
+    Vehículo: VehicleRate
+    Camión: VehicleRate
+  }
   companyName: string
   companyPhone: string
   companyEmail: string
@@ -30,11 +40,18 @@ const DEFAULTS: Omit<AppSettings, 'updatedAt'> = {
   fuelPriceDieselCs: 54,
   baseFeeCs: 80,
   farePerKmCs: 8.5,
+  vehicleRates: {
+    Moto: { baseFeeCs: 60, farePerKmCs: 6.5 },
+    Vehículo: { baseFeeCs: 80, farePerKmCs: 8.5 },
+    Camión: { baseFeeCs: 130, farePerKmCs: 13.5 },
+  },
   companyName: 'INCOEX Logistics',
   companyPhone: '+505 8888-0000',
   companyEmail: 'contacto@incoexlogistics.com',
   companyAddress: 'Managua, Nicaragua',
 }
+
+const DEFAULT_VEHICLE_RATES = JSON.stringify(DEFAULTS.vehicleRates)
 
 @Injectable()
 export class SettingsStore implements OnModuleDestroy {
@@ -55,6 +72,10 @@ export class SettingsStore implements OnModuleDestroy {
     for (const [key, value] of Object.entries(DEFAULTS)) {
       this.db.prepare('INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)').run(key, String(value), now)
     }
+    const seedVehicleRates = this.db.prepare('SELECT 1 AS present FROM app_settings WHERE key = ?').get('vehicleRates')
+    if (!seedVehicleRates) {
+      this.db.prepare('INSERT OR IGNORE INTO app_settings (key, value, updated_at) VALUES (?, ?, ?)').run('vehicleRates', DEFAULT_VEHICLE_RATES, now)
+    }
   }
 
   get(): AppSettings {
@@ -63,14 +84,28 @@ export class SettingsStore implements OnModuleDestroy {
     const values: Record<string, string | number> = {}
     for (const row of rows) values[row.key] = numericKeys.includes(row.key) ? Number(row.value) : row.value
     const updatedAt = rows[0]?.updated_at ?? new Date().toISOString()
-    return { ...DEFAULTS, ...values, updatedAt } as AppSettings
+    const merged = { ...DEFAULTS, ...values, updatedAt } as unknown as AppSettings
+    if (typeof merged.vehicleRates === 'string') {
+      try {
+        merged.vehicleRates = JSON.parse(merged.vehicleRates)
+      } catch {
+        merged.vehicleRates = DEFAULTS.vehicleRates
+      }
+    }
+    return merged
+  }
+
+  getVehicleRate(vehicle: 'Moto' | 'Vehículo' | 'Camión'): VehicleRate {
+    const rates = this.get().vehicleRates
+    return rates[vehicle] ?? DEFAULTS.vehicleRates.Vehículo
   }
 
   update(patch: SettingsPatch): AppSettings {
     const now = new Date().toISOString()
     for (const [key, value] of Object.entries(patch)) {
       if (value === undefined) continue
-      this.db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?').run(String(value), now, key)
+      const stored = typeof value === 'object' ? JSON.stringify(value) : String(value)
+      this.db.prepare('UPDATE app_settings SET value = ?, updated_at = ? WHERE key = ?').run(stored, now, key)
     }
     return this.get()
   }

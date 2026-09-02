@@ -1,7 +1,17 @@
 import { Body, Controller, Get, Patch } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator'
-import { SettingsStore, type SettingsPatch } from './settings.store'
+import { IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator'
+import { SettingsStore, type SettingsPatch, type VehicleRate } from './settings.store'
+
+class VehicleRateDto implements VehicleRate {
+  @IsNumber()
+  @Min(0)
+  baseFeeCs!: number
+
+  @IsNumber()
+  @Min(0)
+  farePerKmCs!: number
+}
 
 class UpdateSettingsDto implements SettingsPatch {
   @IsOptional()
@@ -28,6 +38,10 @@ class UpdateSettingsDto implements SettingsPatch {
   @IsNumber()
   @Min(0)
   farePerKmCs?: number
+
+  @IsOptional()
+  @IsObject()
+  vehicleRates?: Record<'Moto' | 'Vehículo' | 'Camión', VehicleRateDto>
 
   @IsOptional()
   @IsString()
@@ -58,7 +72,7 @@ export class SettingsController {
   }
 
   @Patch()
-  @ApiOperation({ summary: 'Actualizar tasa de cambio, precios de combustible o tarifas del servicio' })
+  @ApiOperation({ summary: 'Actualizar tasa de cambio, precios de combustible, tarifas por vehículo o datos de la empresa' })
   update(@Body() body: UpdateSettingsDto) {
     return this.store.update(body)
   }
