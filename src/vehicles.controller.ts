@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post, Query, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { ApiConsumes, ApiOperation, ApiTags } from '@nestjs/swagger'
 import { FileInterceptor } from '@nestjs/platform-express'
-import { IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator'
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator'
 import { diskStorage } from 'multer'
 import { mkdirSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
@@ -49,6 +49,10 @@ class CreateVehicleDto {
   @IsInt()
   @Min(0)
   odometerKm?: number
+
+  @IsOptional()
+  @IsBoolean()
+  external?: boolean
 }
 
 class UpdateVehicleDto {
@@ -70,6 +74,10 @@ class UpdateVehicleDto {
   @IsInt()
   @Min(0)
   odometerKm?: number
+
+  @IsOptional()
+  @IsBoolean()
+  external?: boolean
 }
 
 class VehicleStatusDto {

@@ -36,6 +36,7 @@ export interface AppUser {
   roleName: string
   status: 'Activo' | 'Inactivo'
   lastLogin: string
+  sessionState?: 'Activa' | 'Cerrada'
 }
 
 interface UserRow {
@@ -46,6 +47,7 @@ interface UserRow {
   role: string
   status: string
   last_login: string
+  session_state?: string
 }
 
 export const ROLES: Role[] = [
@@ -95,6 +97,7 @@ export class UsersStore implements OnModuleDestroy {
     `)
     const userColumns = new Set((this.db.prepare('PRAGMA table_info(app_users)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!userColumns.has('password_hash')) this.db.exec("ALTER TABLE app_users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
+    if (!userColumns.has('session_state')) this.db.exec("ALTER TABLE app_users ADD COLUMN session_state TEXT NOT NULL DEFAULT 'Activa'")
     const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM app_users').get() as { count: number }).count)
     if (count === 0) this.seed()
   }
@@ -140,6 +143,12 @@ export class UsersStore implements OnModuleDestroy {
     return toUser(row)
   }
 
+  revokeSession(id: string) {
+    const user = this.getUser(id)
+    this.db.prepare('UPDATE app_users SET session_state = ? WHERE id = ?').run('Cerrada', id)
+    return this.getUser(id)
+  }
+
   deleteUser(id: string) {
     if (id === 'usr-001') throw new BadRequestException('El administrador principal no puede eliminarse')
     const user = this.getUser(id)
@@ -166,5 +175,6 @@ function toUser(row: UserRow): AppUser {
     roleName: role.name,
     status: row.status as 'Activo' | 'Inactivo',
     lastLogin: row.last_login,
+    sessionState: (row.session_state?.toString() ?? 'Activa') as 'Activa' | 'Cerrada',
   }
 }

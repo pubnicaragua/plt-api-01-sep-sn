@@ -59,6 +59,7 @@ export interface Driver {
   route: string
   latitude: number
   longitude: number
+  external?: boolean
 }
 
 export interface Client {
@@ -87,6 +88,10 @@ export interface Incident {
   type: string
   priority: IncidentPriority
   status: IncidentStatus
+  description?: string
+  latitude?: number
+  longitude?: number
+  evidence?: string
 }
 
 export interface HistoryEvent {
@@ -112,4 +117,6 @@ export interface ReportSummary {
   dailyLabels: string[]
   topDrivers: Array<{ name: string; trips: number }>
   topClients: Array<{ name: string; trips: number }>
+  topVehicles?: Array<{ plate: string; model: string; trips: number; km: number; incomeCs: number }>
+  driverVehicle?: Array<{ name: string; vehicle: string; trips: number; incomeCs: number }>
 }

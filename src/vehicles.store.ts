@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
+﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -23,6 +23,7 @@ export interface Vehicle {
   priceCs: number
   odometerKm: number
   imageUrl: string
+  external?: boolean
 }
 
 export interface MaintenanceRecord {
@@ -51,6 +52,7 @@ interface VehicleRow {
   price_cs: number
   odometer_km: number
   image_url: string
+  external: number
 }
 
 interface MaintenanceRow {
@@ -67,9 +69,9 @@ const VEHICLE_SEED: Array<Omit<Vehicle, 'status'> & { status: VehicleStatus }> =
   { id: 'vh-002', plate: 'M 234-567', model: 'Nissan NV200 2022', type: 'Panel', capacityKg: 750, year: 2022, status: 'En servicio', driver: 'Roberto Sánchez', lastMaintenance: '18 Ago 2026', nextMaintenance: '18 Sep 2026', totalTrips: 138, fuelType: 'Gasolina', consumptionLPerKm: 0.09, priceCs: 1350000, odometerKm: 61300, imageUrl: '' },
   { id: 'vh-003', plate: 'M 345-678', model: 'Chevrolet Express 2021', type: 'Van', capacityKg: 900, year: 2021, status: 'En servicio', driver: 'Ana López', lastMaintenance: '22 Ago 2026', nextMaintenance: '22 Sep 2026', totalTrips: 141, fuelType: 'Gasolina', consumptionLPerKm: 0.14, priceCs: 1590000, odometerKm: 73810, imageUrl: '' },
   { id: 'vh-004', plate: 'M 456-789', model: 'Mercedes Sprinter 2022', type: 'Van', capacityKg: 1400, year: 2022, status: 'Disponible', driver: 'Pedro Ruiz', lastMaintenance: '05 Ago 2026', nextMaintenance: '05 Sep 2026', totalTrips: 96, fuelType: 'Diésel', consumptionLPerKm: 0.11, priceCs: 2420000, odometerKm: 39420, imageUrl: '' },
-  { id: 'vh-005', plate: 'M 567-890', model: 'Renault Kangoo 2023', type: 'Panel', capacityKg: 650, year: 2023, status: 'Disponible', driver: 'Miguel Torres', lastMaintenance: '28 Jul 2026', nextMaintenance: '28 Ago 2026', totalTrips: 87, fuelType: 'Gasolina', consumptionLPerKm: 0.08, priceCs: 1180000, odometerKm: 57120, imageUrl: '' },
+  { id: 'vh-005', plate: 'M 567-890', model: 'Renault Kangoo 2023', type: 'Panel', capacityKg: 650, year: 2023, status: 'Disponible', driver: 'Miguel Torres', lastMaintenance: '28 Jul 2026', nextMaintenance: '28 Ago 2026', totalTrips: 87, fuelType: 'Gasolina', consumptionLPerKm: 0.08, priceCs: 1180000, odometerKm: 57120, imageUrl: '', external: true },
   { id: 'vh-006', plate: 'M 678-901', model: 'VW Caddy 2020', type: 'Panel', capacityKg: 550, year: 2020, status: 'Mantenimiento', driver: 'Carlos Díaz', lastMaintenance: '25 Ago 2026', nextMaintenance: '25 Sep 2026', totalTrips: 64, fuelType: 'Gasolina', consumptionLPerKm: 0.08, priceCs: 1080000, odometerKm: 69240, imageUrl: '' },
-  { id: 'vh-007', plate: 'M 789-012', model: 'Isuzu NPR 2021', type: 'Camión', capacityKg: 3200, year: 2021, status: 'Disponible', driver: 'Sin asignar', lastMaintenance: '15 Ago 2026', nextMaintenance: '15 Sep 2026', totalTrips: 210, fuelType: 'Diésel', consumptionLPerKm: 0.19, priceCs: 3350000, odometerKm: 105430, imageUrl: '' },
+  { id: 'vh-007', plate: 'M 789-012', model: 'Isuzu NPR 2021', type: 'Camión', capacityKg: 3200, year: 2021, status: 'Disponible', driver: 'Sin asignar', lastMaintenance: '15 Ago 2026', nextMaintenance: '15 Sep 2026', totalTrips: 210, fuelType: 'Diésel', consumptionLPerKm: 0.19, priceCs: 3350000, odometerKm: 105430, imageUrl: '', external: true },
   { id: 'vh-008', plate: 'M 890-123', model: 'Hyundai HD65 2022', type: 'Camión', capacityKg: 4000, year: 2022, status: 'Fuera de servicio', driver: 'Sin asignar', lastMaintenance: '01 Ago 2026', nextMaintenance: '01 Sep 2026', totalTrips: 178, fuelType: 'Diésel', consumptionLPerKm: 0.21, priceCs: 3850000, odometerKm: 96480, imageUrl: '' },
 ]
 
@@ -87,6 +89,7 @@ const VEHICLE_COLUMNS = [
   'price_cs REAL NOT NULL DEFAULT 0',
   'odometer_km INTEGER NOT NULL DEFAULT 0',
   'image_url TEXT NOT NULL DEFAULT \'\'',
+  'external INTEGER NOT NULL DEFAULT 0',
 ]
 
 @Injectable()
@@ -155,22 +158,23 @@ export class VehiclesStore implements OnModuleDestroy {
     return toVehicle(row)
   }
 
-  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number }) {
+  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean }) {
     const duplicate = this.db.prepare('SELECT 1 AS present FROM vehicles WHERE plate = ?').get(input.plate)
     if (duplicate) throw new BadRequestException('Ya existe un vehículo con esa placa')
     const id = `vh-${String(Date.now()).slice(-6)}`
     const now = new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
-    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '')
+    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0)
     return this.get(id)
   }
 
-  update(id: string, input: { fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number }) {
+  update(id: string, input: { fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean }) {
     this.get(id)
     if (input.fuelType !== undefined) this.db.prepare('UPDATE vehicles SET fuel_type = ? WHERE id = ?').run(input.fuelType, id)
     if (input.consumptionLPerKm !== undefined) this.db.prepare('UPDATE vehicles SET consumption_l_per_km = ? WHERE id = ?').run(input.consumptionLPerKm, id)
     if (input.priceCs !== undefined) this.db.prepare('UPDATE vehicles SET price_cs = ? WHERE id = ?').run(input.priceCs, id)
     if (input.odometerKm !== undefined) this.db.prepare('UPDATE vehicles SET odometer_km = ? WHERE id = ?').run(input.odometerKm, id)
+    if (input.external !== undefined) this.db.prepare('UPDATE vehicles SET external = ? WHERE id = ?').run(input.external ? 1 : 0, id)
     return this.get(id)
   }
 
@@ -231,8 +235,8 @@ export class VehiclesStore implements OnModuleDestroy {
   onModuleDestroy() { this.db.close() }
 
   private seed() {
-    const insertVehicle = this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const vehicle of VEHICLE_SEED) insertVehicle.run(vehicle.id, vehicle.plate, vehicle.model, vehicle.type, vehicle.capacityKg, vehicle.year, vehicle.status, vehicle.driver, vehicle.lastMaintenance, vehicle.nextMaintenance, vehicle.totalTrips, vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.imageUrl)
+    const insertVehicle = this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const vehicle of VEHICLE_SEED) insertVehicle.run(vehicle.id, vehicle.plate, vehicle.model, vehicle.type, vehicle.capacityKg, vehicle.year, vehicle.status, vehicle.driver, vehicle.lastMaintenance, vehicle.nextMaintenance, vehicle.totalTrips, vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.imageUrl, vehicle.external ? 1 : 0)
     const insertMaintenance = this.db.prepare('INSERT INTO maintenance_records (id, vehicle_id, plate, maintenance_date, description, cost) VALUES (?, ?, ?, ?, ?, ?)')
     for (const record of MAINTENANCE_SEED) insertMaintenance.run(record.id, record.vehicleId, this.get(record.vehicleId).plate, record.date, record.description, record.cost)
   }
@@ -256,6 +260,7 @@ function toVehicle(row: VehicleRow): Vehicle {
     priceCs: row.price_cs,
     odometerKm: row.odometer_km,
     imageUrl: row.image_url,
+    external: Boolean(row.external ?? 0),
   }
 }
 

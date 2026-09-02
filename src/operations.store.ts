@@ -4,6 +4,7 @@ import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripStatus } from './domain'
 import { SettingsStore } from './settings.store'
+import { VehiclesStore } from './vehicles.store'
 
 function freshDate(daysAgo: number) {
   const date = new Date()
@@ -33,7 +34,10 @@ export class OperationsStore implements OnModuleDestroy {
   private readonly db: DatabaseSync
   private trips: Trip[]
 
-  constructor(private readonly settings: SettingsStore) {
+  constructor(
+    private readonly settings: SettingsStore,
+    private readonly vehiclesStore: VehiclesStore,
+  ) {
     const databasePath = resolve(process.env.INCOEX_DB_PATH ?? 'data/incoex-local.sqlite')
     mkdirSync(dirname(databasePath), { recursive: true })
     this.db = new DatabaseSync(databasePath, { timeout: 5000 })
@@ -89,10 +93,15 @@ export class OperationsStore implements OnModuleDestroy {
         client TEXT NOT NULL DEFAULT '',
         type TEXT NOT NULL DEFAULT '',
         priority TEXT NOT NULL DEFAULT 'Media',
-        status TEXT NOT NULL DEFAULT 'Abierta'
+        status TEXT NOT NULL DEFAULT 'Abierta',
+        description TEXT NOT NULL DEFAULT '',
+        latitude REAL,
+        longitude REAL,
+        evidence TEXT NOT NULL DEFAULT ''
       );
     `)
     this.migrateClients()
+    this.migrateIncidents()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM clients').get() as { count: number }).count) === 0) this.seedClients()
     else this.dedupeClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM drivers').get() as { count: number }).count) === 0) this.seedDrivers()
@@ -156,9 +165,9 @@ export class OperationsStore implements OnModuleDestroy {
     { id: 'drv-002', name: 'Roberto Sánchez', phone: '8234-5678', vehicle: 'Nissan NV200', plate: 'M 234-567', status: 'En viaje', route: 'Ciudad Jardín → Los Robles', latitude: 12.112, longitude: -86.246 },
     { id: 'drv-003', name: 'Ana López', phone: '8345-6789', vehicle: 'Chevrolet Express', plate: 'M 345-678', status: 'En entrega', route: 'Bello Horizonte → San Judas', latitude: 12.135, longitude: -86.279 },
     { id: 'drv-004', name: 'Pedro Ruiz', phone: '8456-7890', vehicle: 'Mercedes Sprinter', plate: 'M 456-789', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.121, longitude: -86.244 },
-    { id: 'drv-005', name: 'Miguel Torres', phone: '8567-8901', vehicle: 'Renault Kangoo', plate: 'M 567-890', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.102, longitude: -86.268 },
+    { id: 'drv-005', name: 'Miguel Torres', phone: '8567-8901', vehicle: 'Renault Kangoo', plate: 'M 567-890', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.102, longitude: -86.268, external: true },
     { id: 'drv-006', name: 'Carlos Díaz', phone: '8678-9012', vehicle: 'VW Caddy', plate: 'M 678-901', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.139, longitude: -86.231 },
-    { id: 'drv-007', name: 'José Martínez', phone: '8912-3456', vehicle: 'Toyota Hiace', plate: 'M 890-123', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.116, longitude: -86.239 },
+    { id: 'drv-007', name: 'José Martínez', phone: '8912-3456', vehicle: 'Toyota Hiace', plate: 'M 890-123', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.116, longitude: -86.239, external: true },
   ]
 
   private clients: Client[] = [
@@ -206,6 +215,15 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('due_day')) this.db.exec('ALTER TABLE clients ADD COLUMN due_day INTEGER NOT NULL DEFAULT 0')
     const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('external')) this.db.exec('ALTER TABLE drivers ADD COLUMN external INTEGER NOT NULL DEFAULT 0')
+  }
+
+  private migrateIncidents() {
+    const columns = new Set((this.db.prepare('PRAGMA table_info(incidents)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+    if (!columns.has('description')) this.db.exec("ALTER TABLE incidents ADD COLUMN description TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('latitude')) this.db.exec('ALTER TABLE incidents ADD COLUMN latitude REAL')
+    if (!columns.has('longitude')) this.db.exec('ALTER TABLE incidents ADD COLUMN longitude REAL')
+    if (!columns.has('evidence')) this.db.exec("ALTER TABLE incidents ADD COLUMN evidence TEXT NOT NULL DEFAULT ''")
   }
 
   private dedupeClients() {
@@ -237,6 +255,10 @@ export class OperationsStore implements OnModuleDestroy {
       type: String(row.type),
       priority: row.priority as Incident['priority'],
       status: row.status as Incident['status'],
+      description: row.description?.toString(),
+      latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
+      longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
+      evidence: row.evidence?.toString() || undefined,
     }))
   }
 
@@ -261,15 +283,15 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedDrivers() {
-    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
   }
 
   private ensureSeedDrivers() {
     const exists = this.db.prepare('SELECT 1 AS present FROM drivers WHERE id = ?')
-    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const driver of this.drivers) {
-      if (!exists.get(driver.id)) insert.run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+      if (!exists.get(driver.id)) insert.run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
     }
   }
 
@@ -286,6 +308,7 @@ export class OperationsStore implements OnModuleDestroy {
       route: String(row.route),
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
+      external: Boolean(row.external ?? 0),
     }))
   }
 
@@ -450,14 +473,14 @@ export class OperationsStore implements OnModuleDestroy {
     return { deleted: id }
   }
 
-  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string }) {
+  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean }) {
     const phone = (input.phone ?? '').trim()
     const name = (input.name ?? '').trim()
     const existing = this.db.prepare('SELECT * FROM drivers WHERE phone = ? AND phone != \'\' ORDER BY rowid ASC LIMIT 1').get(phone) ?? this.db.prepare('SELECT * FROM drivers WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
     if (existing) {
       const row = existing as unknown as Record<string, unknown>
-      this.db.prepare('UPDATE drivers SET name = ?, vehicle = ?, plate = ?, email = ? WHERE id = ?')
-        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), String(row.id))
+      this.db.prepare('UPDATE drivers SET name = ?, vehicle = ?, plate = ?, email = ?, external = ? WHERE id = ?')
+        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), input.external ? 1 : Number(row.external ?? 0), String(row.id))
       const updated = this.listDrivers().find((driver) => driver.id === row.id)
       return updated ? { ...updated, existed: true } : updated
     }
@@ -472,10 +495,22 @@ export class OperationsStore implements OnModuleDestroy {
       route: 'Sin viaje activo',
       latitude: 12.114993 + (this.drivers.length % 3) * 0.01,
       longitude: -86.236174 + (this.drivers.length % 2) * 0.012,
+      external: Boolean(input.external),
     }
     this.drivers.push(driver)
-    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
+    return driver
+  }
+
+  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean }) {
+    const driver = this.drivers.find((candidate) => candidate.id === id)
+    if (!driver) throw new NotFoundException('Conductor no encontrado')
+    if (input.vehicle !== undefined) driver.vehicle = input.vehicle
+    if (input.plate !== undefined) driver.plate = input.plate
+    if (input.external !== undefined) driver.external = Boolean(input.external)
+    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ? WHERE id = ?')
+      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, id)
     return driver
   }
 
@@ -507,7 +542,7 @@ export class OperationsStore implements OnModuleDestroy {
     return { deleted: normalized }
   }
 
-  createIncident(input: { trip: string; driver: string; client: string; type: string; priority: Incident['priority'] }) {
+  createIncident(input: { trip: string; driver: string; client: string; type: string; priority: Incident['priority']; description?: string; latitude?: number; longitude?: number; evidence?: string }) {
     const incident: Incident = {
       id: `INC-${String(Date.now()).slice(-6)}`,
       trip: input.trip,
@@ -516,10 +551,14 @@ export class OperationsStore implements OnModuleDestroy {
       type: input.type,
       priority: input.priority,
       status: 'Abierta',
+      description: input.description,
+      latitude: input.latitude,
+      longitude: input.longitude,
+      evidence: input.evidence,
     }
     this.incidents.unshift(incident)
-    this.db.prepare('INSERT INTO incidents (id, trip, driver, client, type, priority, status) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status)
+    this.db.prepare('INSERT INTO incidents (id, trip, driver, client, type, priority, status, description, latitude, longitude, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status, incident.description ?? '', incident.latitude ?? null, incident.longitude ?? null, incident.evidence ?? '')
     return incident
   }
 
@@ -570,6 +609,38 @@ export class OperationsStore implements OnModuleDestroy {
         .slice(0, 5)
         .map(([name, trips]) => ({ name, trips }))
     }
+    const vehicleByPlate = new Map(this.vehiclesStore.list().map((vehicle) => [vehicle.plate, vehicle]))
+    const vehicleOfTrip = (trip: Trip) => {
+      const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
+      if (!driver) return null
+      return vehicleByPlate.get(driver.plate) ?? null
+    }
+    const vehicleStats = new Map<string, { plate: string; model: string; trips: number; km: number; incomeCs: number }>()
+    const driverStats = new Map<string, { name: string; vehicle: string; trips: number; incomeCs: number }>()
+    for (const trip of completed) {
+      const vehicle = vehicleOfTrip(trip)
+      if (vehicle) {
+        const key = vehicle.plate
+        const current = vehicleStats.get(key) ?? { plate: vehicle.plate, model: vehicle.model, trips: 0, km: 0, incomeCs: 0 }
+        current.trips += 1
+        current.km += trip.distanceKm ?? 0
+        current.incomeCs += trip.estimatedCostCs ?? 0
+        vehicleStats.set(key, current)
+      }
+      const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
+      const current = driverStats.get(trip.driver) ?? { name: trip.driver, vehicle: driver?.vehicle ?? '—', trips: 0, incomeCs: 0 }
+      current.trips += 1
+      current.incomeCs += trip.estimatedCostCs ?? 0
+      driverStats.set(trip.driver, current)
+    }
+    const topVehicles = Array.from(vehicleStats.values())
+      .sort((a, b) => b.trips - a.trips)
+      .slice(0, 5)
+      .map((vehicle) => ({ ...vehicle, km: Number(vehicle.km.toFixed(1)), incomeCs: Number(vehicle.incomeCs.toFixed(2)) }))
+    const driverVehicle = Array.from(driverStats.values())
+      .sort((a, b) => b.trips - a.trips)
+      .slice(0, 5)
+      .map((entry) => ({ ...entry, incomeCs: Number(entry.incomeCs.toFixed(2)) }))
     return {
       totalTrips: this.trips.length,
       completedTrips: completed.length,
@@ -583,6 +654,8 @@ export class OperationsStore implements OnModuleDestroy {
       dailyLabels: daily.labels,
       topDrivers: topBy((trip) => trip.driver, (trip) => trip.driver !== 'Sin asignar'),
       topClients: topBy((trip) => trip.client),
+      topVehicles,
+      driverVehicle,
     }
   }
 
@@ -652,14 +725,24 @@ export class OperationsStore implements OnModuleDestroy {
     return trip
   }
 
-  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {
-    const trip = this.getTrip(id)
+  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {    const trip = this.getTrip(id)
     if (input.method !== undefined) trip.paymentMethod = input.method
     if (input.ref !== undefined) trip.paymentRef = input.ref
     if (input.amount !== undefined) trip.paymentAmount = Math.max(0, Number(input.amount) || 0)
     if (input.date !== undefined) trip.paymentDate = input.date
     if (input.dueDate !== undefined) trip.dueDate = input.dueDate
     const expected = trip.estimatedCostCs ?? 0
+    if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
+    else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
+    else trip.paymentStatus = 'Sin pagar'
+    this.persistTrip(trip)
+    return trip
+  }
+
+  updateTripFare(id: string, amount: number) {
+    const trip = this.getTrip(id)
+    trip.estimatedCostCs = Math.max(0, Number(amount) || 0)
+    const expected = trip.estimatedCostCs
     if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
     else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
     else trip.paymentStatus = 'Sin pagar'

@@ -68,6 +68,12 @@ export class UsersController {
     return this.store.updateUser(id, body)
   }
 
+  @Patch('users/:id/revoke-session')
+  @ApiOperation({ summary: 'Cerrar la sesión activa de un usuario (robo o sesión compartida)' })
+  revokeSession(@Param('id') id: string) {
+    return this.store.revokeSession(id)
+  }
+
   @Delete('users/:id')
   @ApiOperation({ summary: 'Eliminar un usuario (el administrador principal está protegido)' })
   deleteUser(@Param('id') id: string) {

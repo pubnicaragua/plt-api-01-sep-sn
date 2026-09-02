@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator'
 import type { IncidentPriority, IncidentStatus } from './domain'
 import { OperationsStore } from './operations.store'
 
@@ -29,6 +29,22 @@ class CreateIncidentDto {
   @IsOptional()
   @IsIn(['Baja', 'Media', 'Alta', 'Crítica'])
   priority?: IncidentPriority
+
+  @IsOptional()
+  @IsString()
+  description?: string
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number
+
+  @IsOptional()
+  @IsString()
+  evidence?: string
 }
 
 @ApiTags('incidents')
@@ -43,7 +59,7 @@ export class IncidentsController {
   }
 
   @Post()
-  @ApiOperation({ summary: 'Reportar una incidencia nueva (abierta por defecto)' })
+  @ApiOperation({ summary: 'Reportar una incidencia nueva con descripción, GPS y evidencia (abierta por defecto)' })
   create(@Body() body: CreateIncidentDto) {
     return this.store.createIncident({
       trip: body.trip ?? '—',
@@ -51,6 +67,10 @@ export class IncidentsController {
       client: body.client,
       type: body.type,
       priority: body.priority ?? 'Media',
+      description: body.description,
+      latitude: body.latitude,
+      longitude: body.longitude,
+      evidence: body.evidence,
     })
   }
 

@@ -1,6 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class CreateDriverDto {
@@ -23,6 +23,24 @@ class CreateDriverDto {
   @IsOptional()
   @IsString()
   plate?: string
+
+  @IsOptional()
+  @IsBoolean()
+  external?: boolean
+}
+
+class UpdateDriverDto {
+  @IsOptional()
+  @IsString()
+  vehicle?: string
+
+  @IsOptional()
+  @IsString()
+  plate?: string
+
+  @IsOptional()
+  @IsBoolean()
+  external?: boolean
 }
 
 @ApiTags('drivers')
@@ -40,6 +58,12 @@ export class DriversController {
   @ApiOperation({ summary: 'Registrar un conductor nuevo (disponible por defecto)' })
   create(@Body() body: CreateDriverDto) {
     return this.store.createDriver(body)
+  }
+
+  @Patch(':id')
+  @ApiOperation({ summary: 'Actualizar vehículo y marca de proveedor tercerizado de un conductor' })
+  update(@Param('id') id: string, @Body() body: UpdateDriverDto) {
+    return this.store.updateDriver(id, body)
   }
 
   @Delete(':id')
