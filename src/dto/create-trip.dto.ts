@@ -73,4 +73,12 @@ export class CreateTripDto {
   @IsOptional()
   @IsString()
   contactPhone?: string
+
+  @IsOptional()
+  @IsString()
+  originRefs?: string
+
+  @IsOptional()
+  @IsString()
+  destinationRefs?: string
 }

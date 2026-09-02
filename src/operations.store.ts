@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
+﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -9,6 +9,23 @@ function freshDate(daysAgo: number) {
   const date = new Date()
   date.setDate(date.getDate() - daysAgo)
   return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(date)
+}
+
+function formatDateOffset(daysAhead: number) {
+  const date = new Date()
+  date.setDate(date.getDate() + daysAhead)
+  return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(date)
+}
+
+function collectOnDay(day: number) {
+  const clamped = Math.max(1, Math.min(28, day))
+  const now = new Date()
+  if (now.getDate() <= clamped) {
+    const target = new Date(now.getFullYear(), now.getMonth(), clamped)
+    return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(target)
+  }
+  const target = new Date(now.getFullYear(), now.getMonth() + 1, clamped)
+  return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(target)
 }
 
 @Injectable()
@@ -97,6 +114,14 @@ export class OperationsStore implements OnModuleDestroy {
     ['contact_name', 'TEXT NOT NULL DEFAULT \'\''],
     ['contact_phone', 'TEXT NOT NULL DEFAULT \'\''],
     ['pickup_time', 'TEXT NOT NULL DEFAULT \'\''],
+    ['origin_refs', 'TEXT NOT NULL DEFAULT \'\''],
+    ['destination_refs', 'TEXT NOT NULL DEFAULT \'\''],
+    ['payment_method', 'TEXT NOT NULL DEFAULT \'\''],
+    ['payment_ref', 'TEXT NOT NULL DEFAULT \'\''],
+    ['payment_amount', 'REAL NOT NULL DEFAULT 0'],
+    ['payment_date', 'TEXT NOT NULL DEFAULT \'\''],
+    ['payment_status', 'TEXT NOT NULL DEFAULT \'Sin pagar\''],
+    ['due_date', 'TEXT NOT NULL DEFAULT \'\''],
   ]
 
   private migrateTrips() {
@@ -177,6 +202,8 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('contact')) this.db.exec("ALTER TABLE clients ADD COLUMN contact TEXT NOT NULL DEFAULT ''")
     if (!columns.has('tax_id')) this.db.exec("ALTER TABLE clients ADD COLUMN tax_id TEXT NOT NULL DEFAULT ''")
     if (!columns.has('notes')) this.db.exec("ALTER TABLE clients ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('credit_days')) this.db.exec('ALTER TABLE clients ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0')
+    if (!columns.has('due_day')) this.db.exec('ALTER TABLE clients ADD COLUMN due_day INTEGER NOT NULL DEFAULT 0')
     const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
   }
@@ -228,6 +255,8 @@ export class OperationsStore implements OnModuleDestroy {
       trips: Number(row.trips),
       activeRequests: Number(row.active_requests),
       status: row.status as Client['status'],
+      creditDays: Number(row.credit_days ?? 0),
+      dueDay: Number(row.due_day ?? 0),
     }))
   }
 
@@ -261,13 +290,13 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedTrips() {
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const trip of [...this.seedData].reverse()) this.writeSeedTrip(insert, trip)
   }
 
   private ensureSeedTrips() {
     const exists = this.db.prepare('SELECT 1 AS present FROM trips WHERE id = ?')
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const recentDates = new Set(Array.from({ length: 16 }, (_, offset) => freshDate(offset)))
     const syncSeed = this.db.prepare('UPDATE trips SET trip_date = ?, distance_km = ?, estimated_cost_cs = ? WHERE id = ?')
     for (const trip of [...this.seedData].reverse()) {
@@ -284,7 +313,7 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private writeSeedTrip(statement: ReturnType<DatabaseSync['prepare']>, trip: Trip) {
-    statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '')
+    statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '')
   }
 
   private loadTrips() {
@@ -312,6 +341,14 @@ export class OperationsStore implements OnModuleDestroy {
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
       pickupTime: row.pickup_time?.toString(),
+      originRefs: row.origin_refs?.toString(),
+      destinationRefs: row.destination_refs?.toString(),
+      paymentMethod: (row.payment_method?.toString() ?? '') as Trip['paymentMethod'],
+      paymentRef: row.payment_ref?.toString(),
+      paymentAmount: row.payment_amount === undefined || row.payment_amount === null ? undefined : Number(row.payment_amount),
+      paymentDate: row.payment_date?.toString(),
+      paymentStatus: (row.payment_status?.toString() ?? 'Sin pagar') as Trip['paymentStatus'],
+      dueDate: row.due_date?.toString(),
     }))
   }
 
@@ -320,8 +357,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -357,14 +394,14 @@ export class OperationsStore implements OnModuleDestroy {
   listIncidents() { return this.incidents }
   listHistory() { return this.history }
 
-  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string }) {
+  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number }) {
     const email = (input.email ?? '').trim().toLowerCase()
     const name = (input.name ?? '').trim()
     const existing = this.db.prepare('SELECT * FROM clients WHERE email = ? AND email != \'\' ORDER BY rowid ASC LIMIT 1').get(email) ?? this.db.prepare('SELECT * FROM clients WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
     if (existing) {
       const row = existing as unknown as Record<string, unknown>
-      this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ? WHERE id = ?')
-        .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), String(row.id))
+      this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ? WHERE id = ?')
+        .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), input.creditDays ?? Number(row.credit_days ?? 0), input.dueDay ?? Number(row.due_day ?? 0), String(row.id))
       return { ...this.listClients().find((client) => client.id === row.id), existed: true }
     }
     const client: Client = {
@@ -380,10 +417,28 @@ export class OperationsStore implements OnModuleDestroy {
       trips: 0,
       activeRequests: 0,
       status: 'Activo',
+      creditDays: Math.max(0, Math.round(input.creditDays ?? 0)),
+      dueDay: Math.max(0, Math.min(28, Math.round(input.dueDay ?? 0))),
     }
     this.clients.unshift(client)
-    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.trips, client.activeRequests, client.status)
+    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, credit_days, due_day, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.trips, client.activeRequests, client.status)
+    return client
+  }
+
+  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number }) {
+    const client = this.clients.find((candidate) => candidate.id === id)
+    if (!client) throw new NotFoundException('Cliente no encontrado')
+    if (input.phone !== undefined) client.phone = input.phone
+    if (input.email !== undefined) client.email = input.email.trim().toLowerCase()
+    if (input.address !== undefined) client.address = input.address
+    if (input.contact !== undefined) client.contact = input.contact
+    if (input.taxId !== undefined) client.taxId = input.taxId
+    if (input.notes !== undefined) client.notes = input.notes
+    if (input.creditDays !== undefined) client.creditDays = Math.max(0, Math.round(input.creditDays))
+    if (input.dueDay !== undefined) client.dueDay = Math.max(0, Math.min(28, Math.round(input.dueDay)))
+    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ? WHERE id = ?')
+      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, id)
     return client
   }
 
@@ -550,11 +605,17 @@ export class OperationsStore implements OnModuleDestroy {
     autoAssign?: boolean
     contactName?: string
     contactPhone?: string
+    originRefs?: string
+    destinationRefs?: string
   }) {
     const nextNumber = 4792 + this.trips.length
     const distanceKm = Math.max(0, input.distanceKm ?? 0)
     const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
     const estimatedCostCs = Number((rate.baseFeeCs + distanceKm * rate.farePerKmCs).toFixed(2))
+    const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
+    const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
+      ? ((clientAccount.creditDays ?? 0) > 0 ? formatDateOffset(clientAccount.creditDays!) : collectOnDay(clientAccount.dueDay!))
+      : ''
     const trip: Trip = {
       id: `#${nextNumber}`,
       client: input.client,
@@ -577,13 +638,32 @@ export class OperationsStore implements OnModuleDestroy {
       serviceType: input.serviceType ?? 'Urbano',
       contactName: input.contactName,
       contactPhone: input.contactPhone,
+      originRefs: input.originRefs,
+      destinationRefs: input.destinationRefs,
+      paymentStatus: 'Sin pagar',
+      dueDate,
     }
     this.trips.unshift(trip)
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '')
     if (input.autoAssign) {
       this.assignAutomatically(trip)
     }
+    return trip
+  }
+
+  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {
+    const trip = this.getTrip(id)
+    if (input.method !== undefined) trip.paymentMethod = input.method
+    if (input.ref !== undefined) trip.paymentRef = input.ref
+    if (input.amount !== undefined) trip.paymentAmount = Math.max(0, Number(input.amount) || 0)
+    if (input.date !== undefined) trip.paymentDate = input.date
+    if (input.dueDate !== undefined) trip.dueDate = input.dueDate
+    const expected = trip.estimatedCostCs ?? 0
+    if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
+    else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
+    else trip.paymentStatus = 'Sin pagar'
+    this.persistTrip(trip)
     return trip
   }
 

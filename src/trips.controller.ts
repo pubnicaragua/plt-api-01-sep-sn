@@ -1,14 +1,36 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsIn } from 'class-validator'
+import { IsIn, IsNumber, IsOptional, IsString } from 'class-validator'
 import type { TripStatus } from './domain'
 import { AssignTripDto } from './dto/assign-trip.dto'
 import { CreateTripDto } from './dto/create-trip.dto'
 import { OperationsStore } from './operations.store'
 
 class UpdateTripStatusDto {
-  @IsIn(['Pendiente', 'Asignado', 'En camino', 'En entrega', 'Completado', 'Cancelado'])
+  @IsIn(['Pendiente', 'Asignado', 'En camino', 'En entrega', 'Completado', 'Cancelado', 'Anulado'])
   status!: TripStatus
+}
+
+class UpdateTripPaymentDto {
+  @IsOptional()
+  @IsIn(['Efectivo', 'Transferencia', 'Financiamiento', 'Contra entrega', ''])
+  method?: string
+
+  @IsOptional()
+  @IsString()
+  ref?: string
+
+  @IsOptional()
+  @IsNumber()
+  amount?: number
+
+  @IsOptional()
+  @IsString()
+  date?: string
+
+  @IsOptional()
+  @IsString()
+  dueDate?: string
 }
 
 @ApiTags('trips')
@@ -35,8 +57,14 @@ export class TripsController {
   assign(@Param('id') id: string, @Body() body: AssignTripDto) { return this.store.assignTrip(id, body.driverId) }
 
   @Patch(':id/status')
-  @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, cancelado…)' })
+  @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, anulado…)' })
   updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status) }
+
+  @Patch(':id/payment')
+  @ApiOperation({ summary: 'Registrar el pago del viaje: efectivo, transferencia (cuenta/referencia), financiamiento o contra entrega; la fecha de cobro se calcula desde el crédito del cliente.' })
+  updatePayment(@Param('id') id: string, @Body() body: UpdateTripPaymentDto) {
+    return this.store.updateTripPayment(id, { method: body.method as 'Efectivo', ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate })
+  }
 
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar un viaje (libera al conductor si estaba asignado)' })

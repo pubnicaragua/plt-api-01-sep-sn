@@ -8,14 +8,33 @@ export class PlacesController {
   @Get('autocomplete')
   @ApiOperation({ summary: 'Autocomplete de lugares de Managua: catálogo local + Google Places (si hay key)' })
   async autocomplete(@Query('q') query: string) {
-    if (!query || query.trim().length < 2) return []
+    if (!query || query.trim().length < 1) return []
 
     const term = query.trim().toLowerCase()
-    const local = MANAGUA_PLACES.filter((place) =>
-      `${place.name} ${place.zone}`.toLowerCase().includes(term),
-    )
-      .slice(0, 8)
-      .map((place) => ({
+
+    const startsOrContains = (text: string) => {
+      const lower = text.toLowerCase()
+      return lower.startsWith(term) || lower.includes(term)
+    }
+
+    const scored = MANAGUA_PLACES.map((place) => {
+      const haystack = `${place.name} ${place.zone}`
+      const nameLower = place.name.toLowerCase()
+      let score = 0
+      if (nameLower.startsWith(term)) score = 3
+      else if (nameLower === term) score = 4
+      else if (`${place.name} ${place.zone}`.toLowerCase().startsWith(term)) score = 2
+      else if (nameLower.includes(term)) score = 1
+      else if (place.zone.toLowerCase().includes(term)) score = 0
+      else score = -1
+      return { place, score }
+    })
+      .filter((entry) => startsOrContains(`${entry.place.name} ${entry.place.zone}`))
+      .sort((a, b) => b.score - a.score)
+
+    const local = scored
+      .slice(0, 10)
+      .map(({ place }) => ({
         placeId: `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         description: `${place.name}, ${place.zone} · Managua`,
         main: place.name,

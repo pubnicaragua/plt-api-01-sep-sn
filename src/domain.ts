@@ -28,6 +28,14 @@ export interface Trip {
   contactName?: string
   contactPhone?: string
   pickupTime?: string
+  originRefs?: string
+  destinationRefs?: string
+  paymentMethod?: 'Efectivo' | 'Transferencia' | 'Financiamiento' | 'Contra entrega' | ''
+  paymentRef?: string
+  paymentAmount?: number
+  paymentDate?: string
+  paymentStatus?: 'Sin pagar' | 'Parcial' | 'Pagado'
+  dueDate?: string
 }
 
 export interface AppNotification {
@@ -67,6 +75,8 @@ export interface Client {
   trips: number
   activeRequests: number
   status: 'Activo' | 'Suspendido'
+  creditDays?: number
+  dueDay?: number
 }
 
 export interface Incident {
