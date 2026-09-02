@@ -270,6 +270,10 @@ export class OperationsStore implements OnModuleDestroy {
     const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if (!driverColumns.has('external')) this.db.exec('ALTER TABLE drivers ADD COLUMN external INTEGER NOT NULL DEFAULT 0')
+    if (!driverColumns.has('license_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_no TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('license_exp')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_exp TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('doc_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN doc_no TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('notes')) this.db.exec("ALTER TABLE drivers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
     const migrationMarker = this.db.prepare("SELECT 1 AS present FROM incoex_meta WHERE key = ?")
     if (!migrationMarker.get('drv_external_v1')) {
       this.db.prepare("UPDATE drivers SET external = 1 WHERE name IN ('Miguel Torres', 'José Martínez') AND external = 0").run()
@@ -396,7 +400,7 @@ export class OperationsStore implements OnModuleDestroy {
 
   private seedDrivers() {
     const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
+    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '')
   }
 
   private ensureSeedDrivers() {
@@ -421,6 +425,10 @@ export class OperationsStore implements OnModuleDestroy {
       latitude: Number(row.latitude),
       longitude: Number(row.longitude),
       external: Boolean(row.external ?? 0),
+      licenseNo: String(row.license_no ?? ''),
+      licenseExp: String(row.license_exp ?? ''),
+      docNo: String(row.doc_no ?? ''),
+      notes: String(row.notes ?? ''),
     }))
   }
 
@@ -702,14 +710,14 @@ getClientProfile(id: string) {
     return { deleted: id }
   }
 
-  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean }) {
+  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string }) {
     const phone = (input.phone ?? '').trim()
     const name = (input.name ?? '').trim()
     const existing = this.db.prepare('SELECT * FROM drivers WHERE phone = ? AND phone != \'\' ORDER BY rowid ASC LIMIT 1').get(phone) ?? this.db.prepare('SELECT * FROM drivers WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
     if (existing) {
       const row = existing as unknown as Record<string, unknown>
       this.db.prepare('UPDATE drivers SET name = ?, vehicle = ?, plate = ?, email = ?, external = ? WHERE id = ?')
-        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), input.external ? 1 : Number(row.external ?? 0), String(row.id))
+        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), input.external ? 1 : Number(row.external ?? 0), input.licenseNo ?? String(row.license_no ?? ''), input.licenseExp ?? String(row.license_exp ?? ''), input.docNo ?? String(row.doc_no ?? ''), input.notes ?? String(row.notes ?? ''), String(row.id))
       const updated = this.listDrivers().find((driver) => driver.id === row.id)
       return updated ? { ...updated, existed: true } : updated
     }
@@ -725,21 +733,29 @@ getClientProfile(id: string) {
       latitude: 12.114993 + (this.drivers.length % 3) * 0.01,
       longitude: -86.236174 + (this.drivers.length % 2) * 0.012,
       external: Boolean(input.external),
+      licenseNo: String(input.licenseNo ?? ''),
+      licenseExp: String(input.licenseExp ?? ''),
+      docNo: String(input.docNo ?? ''),
+      notes: String(input.notes ?? ''),
     }
     this.drivers.push(driver)
-    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
     return driver
   }
 
-  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean }) {
+  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string }) {
     const driver = this.drivers.find((candidate) => candidate.id === id)
     if (!driver) throw new NotFoundException('Conductor no encontrado')
     if (input.vehicle !== undefined) driver.vehicle = input.vehicle
     if (input.plate !== undefined) driver.plate = input.plate
     if (input.external !== undefined) driver.external = Boolean(input.external)
-    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ? WHERE id = ?')
-      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, id)
+    if (input.licenseNo !== undefined) driver.licenseNo = input.licenseNo
+    if (input.licenseExp !== undefined) driver.licenseExp = input.licenseExp
+    if (input.docNo !== undefined) driver.docNo = input.docNo
+    if (input.notes !== undefined) driver.notes = input.notes
+    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ? WHERE id = ?')
+      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', id)
     return driver
   }
 

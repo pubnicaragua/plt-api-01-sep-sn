@@ -48,6 +48,10 @@ export interface Vehicle {
   minTripsMonth: number
   fuelPriceCs: number
   tankCapacityL: number
+  brand?: string
+  motorNo?: string
+  chassisNo?: string
+  color?: string
   financing: VehicleFinancing
 }
 
@@ -90,6 +94,10 @@ interface VehicleRow {
   depreciation_pct: number
   fuel_price_cs: number
   tank_capacity_l: number
+  brand: string
+  motor_no: string
+  chassis_no: string
+  color: string
 }
 
 interface MaintenanceRow {
@@ -139,6 +147,10 @@ const VEHICLE_COLUMNS = [
   'depreciation_pct REAL NOT NULL DEFAULT 20',
   'fuel_price_cs REAL NOT NULL DEFAULT 0',
   'tank_capacity_l REAL NOT NULL DEFAULT 0',
+  "brand TEXT NOT NULL DEFAULT ''",
+  "motor_no TEXT NOT NULL DEFAULT ''",
+  "chassis_no TEXT NOT NULL DEFAULT ''",
+  "color TEXT NOT NULL DEFAULT ''",
 ]
 
 interface SeedFinance {
@@ -252,6 +264,18 @@ export class VehiclesStore implements OnModuleDestroy {
       this.db.prepare("DELETE FROM incoex_meta WHERE key = 'veh_catalog_v2'").run()
       this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_catalog_v3', '1')").run()
     }
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('veh_doc_v1')) {
+      const doc = this.db.prepare('UPDATE vehicles SET brand = ?, motor_no = ?, chassis_no = ?, color = ? WHERE plate = ?')
+      doc.run('Ford', 'FM-284910', 'FM-3H-29101', 'Blanco', 'M 123-456')
+      doc.run('Nissan', 'NM-482930', 'NN-2F-10422', 'Gris', 'M 234-567')
+      doc.run('Chevrolet', 'CE-104928', 'CH-8D-77130', 'Azul', 'M 345-678')
+      doc.run('Mercedes', 'MB-395021', 'MB-6C-98214', 'Blanco', 'M 456-789')
+      doc.run('Renault', 'RG-172036', 'RN-4B-30217', 'Rojo', 'M 567-890')
+      doc.run('Volkswagen', 'VW-209341', 'VW-1A-88430', 'Gris', 'M 678-901')
+      doc.run('Isuzu', 'IS-601224', 'IS-7E-45518', 'Azul', 'M 789-012')
+      doc.run('Hyundai', 'HY-905118', 'HY-9F-61455', 'Blanco', 'M 890-123')
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_doc_v1', '1')").run()
+    }
   }
 
   list() {
@@ -265,14 +289,14 @@ export class VehiclesStore implements OnModuleDestroy {
     return toVehicle(row)
   }
 
-  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number }) {
+  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number; brand?: string; motorNo?: string; chassisNo?: string; color?: string }) {
     this.assertFunctionType(input.type, input.vehicleFunction)
     const duplicate = this.db.prepare('SELECT 1 AS present FROM vehicles WHERE plate = ?').get(input.plate)
     if (duplicate) throw new BadRequestException('Ya existe un vehículo con esa placa')
     const id = `vh-${String(Date.now()).slice(-6)}`
     const now = new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
-    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct, fuel_price_cs, tank_capacity_l) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0, input.vehicleFunction ?? '', input.logistics ?? '', input.minTripsMonth ?? 0, input.financed ? 1 : 0, input.downPaymentCs ?? 0, input.leaseStart ?? '', input.leaseTermMonths ?? 0, input.leaseMonthlyPaymentCs ?? 0, input.residualValueCs ?? 0, input.depreciationPct ?? 20, input.fuelPriceCs ?? 0, input.tankCapacityL ?? 0)
+    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct, fuel_price_cs, tank_capacity_l, brand, motor_no, chassis_no, color) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0, input.vehicleFunction ?? '', input.logistics ?? '', input.minTripsMonth ?? 0, input.financed ? 1 : 0, input.downPaymentCs ?? 0, input.leaseStart ?? '', input.leaseTermMonths ?? 0, input.leaseMonthlyPaymentCs ?? 0, input.residualValueCs ?? 0, input.depreciationPct ?? 20, input.fuelPriceCs ?? 0, input.tankCapacityL ?? 0, input.brand ?? '', input.motorNo ?? '', input.chassisNo ?? '', input.color ?? '')
     return this.get(id)
   }
 
@@ -282,7 +306,7 @@ export class VehiclesStore implements OnModuleDestroy {
     }
   }
 
-  update(id: string, input: { type?: string; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number }) {
+  update(id: string, input: { type?: string; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number; brand?: string; motorNo?: string; chassisNo?: string; color?: string }) {
     const current = this.get(id)
     if (input.vehicleFunction !== undefined || input.type !== undefined) {
       this.assertFunctionType(input.type ?? current.type, input.vehicleFunction ?? current.vehicleFunction)
@@ -305,6 +329,10 @@ export class VehiclesStore implements OnModuleDestroy {
     if (input.depreciationPct !== undefined) this.db.prepare('UPDATE vehicles SET depreciation_pct = ? WHERE id = ?').run(Math.max(0, Math.min(90, input.depreciationPct)), id)
     if (input.fuelPriceCs !== undefined) this.db.prepare('UPDATE vehicles SET fuel_price_cs = ? WHERE id = ?').run(Math.max(0, input.fuelPriceCs), id)
     if (input.tankCapacityL !== undefined) this.db.prepare('UPDATE vehicles SET tank_capacity_l = ? WHERE id = ?').run(Math.max(0, input.tankCapacityL), id)
+    if (input.brand !== undefined) this.db.prepare('UPDATE vehicles SET brand = ? WHERE id = ?').run(input.brand, id)
+    if (input.motorNo !== undefined) this.db.prepare('UPDATE vehicles SET motor_no = ? WHERE id = ?').run(input.motorNo, id)
+    if (input.chassisNo !== undefined) this.db.prepare('UPDATE vehicles SET chassis_no = ? WHERE id = ?').run(input.chassisNo, id)
+    if (input.color !== undefined) this.db.prepare('UPDATE vehicles SET color = ? WHERE id = ?').run(input.color, id)
     return this.get(id)
   }
 
@@ -422,6 +450,10 @@ function toVehicle(row: VehicleRow): Vehicle {
     minTripsMonth: row.min_trips_month ?? 0,
     fuelPriceCs: Number(row.fuel_price_cs ?? 0),
     tankCapacityL: Number(row.tank_capacity_l ?? 0),
+    brand: String(row.brand ?? ''),
+    motorNo: String(row.motor_no ?? ''),
+    chassisNo: String(row.chassis_no ?? ''),
+    color: String(row.color ?? ''),
     financing: {
       financed,
       downPaymentCs: row.down_payment_cs ?? 0,

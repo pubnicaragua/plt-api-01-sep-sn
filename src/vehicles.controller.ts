@@ -111,6 +111,22 @@ class CreateVehicleDto {
   @IsNumber()
   @Min(0)
   tankCapacityL?: number
+
+  @IsOptional()
+  @IsString()
+  brand?: string
+
+  @IsOptional()
+  @IsString()
+  motorNo?: string
+
+  @IsOptional()
+  @IsString()
+  chassisNo?: string
+
+  @IsOptional()
+  @IsString()
+  color?: string
 }
 
 class UpdateVehicleDto {
@@ -195,6 +211,22 @@ class UpdateVehicleDto {
   @IsNumber()
   @Min(0)
   tankCapacityL?: number
+
+  @IsOptional()
+  @IsString()
+  brand?: string
+
+  @IsOptional()
+  @IsString()
+  motorNo?: string
+
+  @IsOptional()
+  @IsString()
+  chassisNo?: string
+
+  @IsOptional()
+  @IsString()
+  color?: string
 }
 
 class VehicleStatusDto {

@@ -58,6 +58,22 @@ class CreateDriverDto {
   @IsOptional()
   @IsBoolean()
   external?: boolean
+
+  @IsOptional()
+  @IsString()
+  licenseNo?: string
+
+  @IsOptional()
+  @IsString()
+  licenseExp?: string
+
+  @IsOptional()
+  @IsString()
+  docNo?: string
+
+  @IsOptional()
+  @IsString()
+  notes?: string
 }
 
 class UpdateDriverDto {
@@ -72,6 +88,22 @@ class UpdateDriverDto {
   @IsOptional()
   @IsBoolean()
   external?: boolean
+
+  @IsOptional()
+  @IsString()
+  licenseNo?: string
+
+  @IsOptional()
+  @IsString()
+  licenseExp?: string
+
+  @IsOptional()
+  @IsString()
+  docNo?: string
+
+  @IsOptional()
+  @IsString()
+  notes?: string
 }
 
 @ApiTags('drivers')

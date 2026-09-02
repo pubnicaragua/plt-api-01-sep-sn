@@ -67,6 +67,10 @@ export interface Driver {
   latitude: number
   longitude: number
   external?: boolean
+  licenseNo?: string
+  licenseExp?: string
+  docNo?: string
+  notes?: string
 }
 
 export interface Client {
