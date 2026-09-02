@@ -2,6 +2,13 @@ import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } f
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { randomBytes, scryptSync } from 'node:crypto'
+
+export function hashPassword(password: string): string {
+  const salt = randomBytes(12).toString('hex')
+  const hash = scryptSync(password, salt, 48).toString('hex')
+  return `${salt}.${hash}`
+}
 
 export type UserRole =
   | 'admin'
@@ -80,11 +87,14 @@ export class UsersStore implements OnModuleDestroy {
         phone TEXT NOT NULL DEFAULT '',
         role TEXT NOT NULL CHECK (role IN ('admin', 'management', 'operations', 'finance', 'support', 'driver', 'corporate', 'store')),
         status TEXT NOT NULL DEFAULT 'Activo' CHECK (status IN ('Activo', 'Inactivo')),
-        last_login TEXT NOT NULL DEFAULT ''
+        last_login TEXT NOT NULL DEFAULT '',
+        password_hash TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS idx_users_role ON app_users(role);
       CREATE INDEX IF NOT EXISTS idx_users_status ON app_users(status);
     `)
+    const userColumns = new Set((this.db.prepare('PRAGMA table_info(app_users)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+    if (!userColumns.has('password_hash')) this.db.exec("ALTER TABLE app_users ADD COLUMN password_hash TEXT NOT NULL DEFAULT ''")
     const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM app_users').get() as { count: number }).count)
     if (count === 0) this.seed()
   }
@@ -98,19 +108,26 @@ export class UsersStore implements OnModuleDestroy {
     return ROLES
   }
 
-  createUser(input: { name: string; email: string; phone?: string; role: UserRole }) {
-    const duplicate = this.db.prepare('SELECT 1 AS present FROM app_users WHERE email = ?').get(input.email)
-    if (duplicate) throw new BadRequestException('Ya existe un usuario con ese correo')
+  createUser(input: { name: string; email: string; phone?: string; role: UserRole; password?: string }) {
+    const existing = this.db.prepare('SELECT id FROM app_users WHERE email = ?').get(input.email)
+    if (existing) {
+      this.db.prepare('UPDATE app_users SET name = ?, phone = ?, role = ? WHERE email = ?')
+        .run(input.name, input.phone ?? '', input.role, input.email)
+      return this.getUser(String((existing as { id: string }).id))
+    }
     const id = `usr-${String(Date.now()).slice(-6)}`
-    this.db.prepare('INSERT INTO app_users (id, name, email, phone, role, status, last_login) VALUES (?, ?, ?, ?, ?, ?, ?)')
-      .run(id, input.name, input.email, input.phone ?? '', input.role, 'Activo', 'Sin accesos registrados')
+    this.db.prepare('INSERT INTO app_users (id, name, email, phone, role, status, last_login, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.name, input.email, input.phone ?? '', input.role, 'Activo', 'Sin accesos registrados', hashPassword(input.password ?? 'Incoex2026'))
     return this.getUser(id)
   }
 
-  updateUser(id: string, input: { role?: UserRole; status?: 'Activo' | 'Inactivo' }) {
+  updateUser(id: string, input: { role?: UserRole; status?: 'Activo' | 'Inactivo'; password?: string }) {
     const user = this.getUser(id)
     if (input.role && !ROLES.some((role) => role.code === input.role)) {
       throw new BadRequestException('Rol no válido')
+    }
+    if (input.password) {
+      this.db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?').run(hashPassword(input.password), id)
     }
     this.db.prepare('UPDATE app_users SET role = ?, status = ? WHERE id = ?')
       .run(input.role ?? user.role, input.status ?? user.status, id)

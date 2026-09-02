@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class CreateDriverDto {
@@ -11,6 +11,10 @@ class CreateDriverDto {
   @IsOptional()
   @IsString()
   phone?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string
 
   @IsOptional()
   @IsString()

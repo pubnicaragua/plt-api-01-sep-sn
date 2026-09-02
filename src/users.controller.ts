@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
 import { UsersStore, type UserRole } from './users.store'
 
 class CreateUserDto {
@@ -17,6 +17,11 @@ class CreateUserDto {
 
   @IsIn(['admin', 'management', 'operations', 'finance', 'support', 'driver', 'corporate', 'store'])
   role!: UserRole
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string
 }
 
 class UpdateUserDto {
@@ -27,6 +32,11 @@ class UpdateUserDto {
   @IsOptional()
   @IsIn(['Activo', 'Inactivo'])
   status?: 'Activo' | 'Inactivo'
+
+  @IsOptional()
+  @IsString()
+  @MinLength(8)
+  password?: string
 }
 
 @ApiTags('admin')

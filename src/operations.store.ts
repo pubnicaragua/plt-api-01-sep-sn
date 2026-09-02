@@ -59,6 +59,7 @@ export class OperationsStore implements OnModuleDestroy {
         id TEXT PRIMARY KEY,
         name TEXT NOT NULL,
         phone TEXT NOT NULL DEFAULT '',
+        email TEXT NOT NULL DEFAULT '',
         vehicle TEXT NOT NULL DEFAULT '',
         plate TEXT NOT NULL DEFAULT '',
         status TEXT NOT NULL DEFAULT 'Disponible',
@@ -78,6 +79,7 @@ export class OperationsStore implements OnModuleDestroy {
     `)
     this.migrateClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM clients').get() as { count: number }).count) === 0) this.seedClients()
+    else this.dedupeClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM drivers').get() as { count: number }).count) === 0) this.seedDrivers()
     else this.ensureSeedDrivers()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM incidents').get() as { count: number }).count) === 0) this.seedIncidents()
@@ -162,8 +164,8 @@ export class OperationsStore implements OnModuleDestroy {
   ]
 
   private seedClients() {
-    const insert = this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const client of this.clients) insert.run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.trips, client.activeRequests, client.status)
+    const insert = this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const client of this.clients) insert.run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.trips, client.activeRequests, client.status)
   }
 
   private seedIncidents() {
@@ -174,6 +176,30 @@ export class OperationsStore implements OnModuleDestroy {
   private migrateClients() {
     const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!columns.has('address')) this.db.exec("ALTER TABLE clients ADD COLUMN address TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('contact')) this.db.exec("ALTER TABLE clients ADD COLUMN contact TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('tax_id')) this.db.exec("ALTER TABLE clients ADD COLUMN tax_id TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('notes')) this.db.exec("ALTER TABLE clients ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+    if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+  }
+
+  private dedupeClients() {
+    const rows = this.db.prepare('SELECT id, name, email, phone, address, contact, tax_id, notes, type FROM clients ORDER BY rowid ASC').all() as unknown as Array<Record<string, unknown>>
+    const kept = new Map<string, string>()
+    const duplicateIds: string[] = []
+    for (const row of rows) {
+      const key = String(row.email ?? '').trim().toLowerCase() || String(row.name ?? '').trim().toLowerCase()
+      const existing = kept.get(key)
+      if (existing === undefined) {
+        kept.set(key, String(row.id))
+      } else if (existing !== String(row.id)) {
+        const newer = this.db.prepare('UPDATE clients SET phone = COALESCE(NULLIF(?, \'\'), phone), address = COALESCE(NULLIF(?, \'\'), address), contact = COALESCE(NULLIF(?, \'\'), contact), tax_id = COALESCE(NULLIF(?, \'\'), tax_id), notes = COALESCE(NULLIF(?, \'\'), notes) WHERE id = ?')
+        newer.run(String(row.phone ?? ''), String(row.address ?? ''), String(row.contact ?? ''), String(row.tax_id ?? ''), String(row.notes ?? ''), existing)
+        duplicateIds.push(String(row.id))
+      }
+    }
+    for (const id of duplicateIds) this.db.prepare('DELETE FROM clients WHERE id = ?').run(id)
+    if (duplicateIds.length > 0) console.log(`[incoex] ${duplicateIds.length} cliente(s) duplicado(s) fusionados en uno solo`)
   }
 
   private loadIncidents() {
@@ -198,6 +224,9 @@ export class OperationsStore implements OnModuleDestroy {
       phone: String(row.phone),
       email: String(row.email),
       address: String(row.address ?? ''),
+      contact: String(row.contact ?? ''),
+      taxId: String(row.tax_id ?? ''),
+      notes: String(row.notes ?? ''),
       trips: Number(row.trips),
       activeRequests: Number(row.active_requests),
       status: row.status as Client['status'],
@@ -205,8 +234,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedDrivers() {
-    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
   }
 
   private ensureSeedDrivers() {
@@ -223,6 +252,7 @@ export class OperationsStore implements OnModuleDestroy {
       id: String(row.id),
       name: String(row.name),
       phone: String(row.phone),
+      email: String(row.email ?? ''),
       vehicle: String(row.vehicle),
       plate: String(row.plate),
       status: row.status as Driver['status'],
@@ -325,23 +355,33 @@ export class OperationsStore implements OnModuleDestroy {
   listIncidents() { return this.incidents }
   listHistory() { return this.history }
 
-  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string }) {
-    const duplicate = this.db.prepare('SELECT 1 AS present FROM clients WHERE name = ?').get(input.name)
-    if (duplicate) throw new BadRequestException('Ya existe un cliente con ese nombre')
+  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string }) {
+    const email = (input.email ?? '').trim().toLowerCase()
+    const name = (input.name ?? '').trim()
+    const existing = this.db.prepare('SELECT * FROM clients WHERE email = ? AND email != \'\' ORDER BY rowid ASC LIMIT 1').get(email) ?? this.db.prepare('SELECT * FROM clients WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
+    if (existing) {
+      const row = existing as unknown as Record<string, unknown>
+      this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ? WHERE id = ?')
+        .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), String(row.id))
+      return { ...this.listClients().find((client) => client.id === row.id), existed: true }
+    }
     const client: Client = {
       id: `cli-${String(Date.now()).slice(-6)}`,
-      name: input.name,
-      type: input.type ?? input.name,
+      name,
+      type: input.type ?? name,
       phone: input.phone ?? '',
-      email: input.email ?? '',
+      email: email || '',
       address: input.address ?? '',
+      contact: input.contact ?? '',
+      taxId: input.taxId ?? '',
+      notes: input.notes ?? '',
       trips: 0,
       activeRequests: 0,
       status: 'Activo',
     }
-    this.clients.push(client)
-    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.trips, client.activeRequests, client.status)
+    this.clients.unshift(client)
+    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.trips, client.activeRequests, client.status)
     return client
   }
 
@@ -353,11 +393,22 @@ export class OperationsStore implements OnModuleDestroy {
     return { deleted: id }
   }
 
-  createDriver(input: { name: string; phone?: string; vehicle?: string; plate?: string }) {
+  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string }) {
+    const phone = (input.phone ?? '').trim()
+    const name = (input.name ?? '').trim()
+    const existing = this.db.prepare('SELECT * FROM drivers WHERE phone = ? AND phone != \'\' ORDER BY rowid ASC LIMIT 1').get(phone) ?? this.db.prepare('SELECT * FROM drivers WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
+    if (existing) {
+      const row = existing as unknown as Record<string, unknown>
+      this.db.prepare('UPDATE drivers SET name = ?, vehicle = ?, plate = ?, email = ? WHERE id = ?')
+        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), String(row.id))
+      const updated = this.listDrivers().find((driver) => driver.id === row.id)
+      return updated ? { ...updated, existed: true } : updated
+    }
     const driver: Driver = {
       id: `drv-${String(Date.now()).slice(-6)}`,
-      name: input.name,
-      phone: input.phone ?? '',
+      name,
+      phone,
+      email: (input.email ?? '').trim(),
       vehicle: input.vehicle ?? 'Sin vehículo asignado',
       plate: input.plate ?? '—',
       status: 'Disponible',
@@ -366,8 +417,8 @@ export class OperationsStore implements OnModuleDestroy {
       longitude: -86.236174 + (this.drivers.length % 2) * 0.012,
     }
     this.drivers.push(driver)
-    this.db.prepare('INSERT INTO drivers (id, name, phone, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
     return driver
   }
 

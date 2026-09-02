@@ -23,6 +23,18 @@ class CreateClientDto {
   @IsOptional()
   @IsString()
   address?: string
+
+  @IsOptional()
+  @IsString()
+  contact?: string
+
+  @IsOptional()
+  @IsString()
+  taxId?: string
+
+  @IsOptional()
+  @IsString()
+  notes?: string
 }
 
 @ApiTags('clients')
