@@ -19,6 +19,7 @@ import { UsersStore } from './users.store'
 import { SettingsController } from './settings.controller'
 import { SettingsStore } from './settings.store'
 import { UploadsController } from './uploads.controller'
+import { PlacesController } from './places.controller'
 
 @Module({
   controllers: [
@@ -37,6 +38,7 @@ import { UploadsController } from './uploads.controller'
     UsersController,
     SettingsController,
     UploadsController,
+    PlacesController,
   ],
   providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore],
 })
