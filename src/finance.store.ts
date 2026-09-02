@@ -63,11 +63,10 @@ export class FinanceStore {
 
   private summarize(trips: Trip[], days: number | null) {
     const completed = trips.filter((trip) => trip.status === 'Completado')
-    const executable = trips.filter((trip) => trip.status !== 'Pendiente' && trip.status !== 'Cancelado' && trip.status !== 'Anulado')
     const incomeCs = completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)
-    const fuelCs = executable.reduce((sum, trip) => sum + this.fuelCsPerTrip(trip), 0)
+    const fuelCs = completed.reduce((sum, trip) => sum + this.fuelCsPerTrip(trip), 0)
     const maintenanceCs = this.maintenanceCsSince(days)
-    const distanceKm = executable.reduce((sum, trip) => sum + (trip.distanceKm ?? 0), 0)
+    const distanceKm = completed.reduce((sum, trip) => sum + (trip.distanceKm ?? 0), 0)
     const marginCs = incomeCs - fuelCs - maintenanceCs
     return {
       label: days === null ? 'Histórico' : days === 0 ? 'Hoy' : days <= 6 ? '7 días' : '30 días',
@@ -92,7 +91,7 @@ export class FinanceStore {
       const dayTrips = all.filter((trip) => trip.date === dayKey)
       const dayCompleted = dayTrips.filter((trip) => trip.status === 'Completado')
       const incomeCs = dayCompleted.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)
-      const fuelCs = dayTrips.reduce((sum, trip) => sum + this.fuelCsPerTrip(trip), 0)
+      const fuelCs = dayCompleted.reduce((sum, trip) => sum + this.fuelCsPerTrip(trip), 0)
       daily.push({ label: dayKey, incomeCs: round2(incomeCs), fuelCs: round2(fuelCs) })
     }
     const clientTotals = new Map<string, { trips: number; incomeCs: number; fuelCs: number }>()
