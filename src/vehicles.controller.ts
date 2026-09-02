@@ -55,7 +55,7 @@ class CreateVehicleDto {
   external?: boolean
 
   @IsOptional()
-  @IsIn(['taxi', 'delivery', 'mixto', ''])
+  @IsIn(['privado', 'delivery', 'camion', ''])
   vehicleFunction?: VehicleFunction
 
   @IsOptional()
@@ -102,6 +102,15 @@ class CreateVehicleDto {
   @Min(0)
   @Max(90)
   depreciationPct?: number
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  fuelPriceCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tankCapacityL?: number
 }
 
 class UpdateVehicleDto {
@@ -129,7 +138,7 @@ class UpdateVehicleDto {
   external?: boolean
 
   @IsOptional()
-  @IsIn(['taxi', 'delivery', 'mixto', ''])
+  @IsIn(['privado', 'delivery', 'camion', ''])
   vehicleFunction?: VehicleFunction
 
   @IsOptional()
@@ -176,6 +185,16 @@ class UpdateVehicleDto {
   @Min(0)
   @Max(90)
   depreciationPct?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  fuelPriceCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  tankCapacityL?: number
 }
 
 class VehicleStatusDto {

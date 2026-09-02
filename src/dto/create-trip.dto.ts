@@ -93,4 +93,13 @@ export class CreateTripDto {
   @IsOptional()
   @IsBoolean()
   isScheduled?: boolean
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  weight?: number
+
+  @IsOptional()
+  @IsIn(['kg', 'lb'])
+  weightUnit?: 'kg' | 'lb'
 }

@@ -531,6 +531,43 @@ export class OperationsStore implements OnModuleDestroy {
   listIncidents() { return this.incidents }
   listHistory() { return this.history }
 
+  checkSession(token: string) {
+    const row = this.db.prepare('SELECT id, name, role, session_state FROM app_users WHERE id = ?').get(token) as Record<string, unknown> | undefined
+    if (!row) return { valid: false, reason: 'Sesión no encontrada' }
+    const state = String(row.session_state ?? 'Activa')
+    return { valid: state === 'Activa', name: String(row.name ?? ''), role: String(row.role ?? ''), sessionState: state }
+  }
+
+  getClientProfile(id: string) {
+    const client = this.clients.find((candidate) => candidate.id === id)
+    if (!client) throw new NotFoundException('Cliente no encontrado')
+    const trips = this.trips.filter((trip) => trip.client.trim().toLowerCase() === client.name.trim().toLowerCase())
+    const completed = trips.filter((trip) => ['Completado', 'Entregado'].includes(trip.status))
+    const totalCs = Number(completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0).toFixed(2))
+    const pendingPayment = trips.filter((trip) => (trip.paymentStatus ?? 'Sin pagar') !== 'Pagado').reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)
+    const cortes = (this.db.prepare('SELECT id, period_start, period_end, period_label, total_cs, previous_debt_cs, grand_total_cs, status, paid_at, method FROM cortes WHERE lower(client) = lower(?) ORDER BY period_end DESC LIMIT 12').all(client.name) as unknown as Array<Record<string, unknown>>).map((row) => ({
+      id: String(row.id),
+      periodStart: String(row.period_start),
+      periodEnd: String(row.period_end),
+      periodLabel: String(row.period_label ?? ''),
+      totalCs: Number(row.total_cs ?? 0),
+      previousDebtCs: Number(row.previous_debt_cs ?? 0),
+      grandTotalCs: Number(row.grand_total_cs ?? 0),
+      status: String(row.status ?? 'pendiente'),
+      paidAt: row.paid_at ? new Date(Number(row.paid_at)).toISOString() : undefined,
+      method: String(row.method ?? ''),
+    }))
+    return {
+      client,
+      trips,
+      tripsCount: trips.length,
+      completedCount: completed.length,
+      totalCs,
+      pendingCs: Number(pendingPayment.toFixed(2)),
+      cortes,
+    }
+  }
+
   createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string }) {
     const email = (input.email ?? '').trim().toLowerCase()
     const name = (input.name ?? '').trim()
@@ -794,12 +831,16 @@ export class OperationsStore implements OnModuleDestroy {
     }
     const fleetReport = this.vehiclesStore.list().map((vehicle) => {
       const current = monthly.get(vehicle.plate) ?? { trips: 0, km: 0, incomeCs: 0 }
-      const fuelPrice = vehicle.fuelType === 'Diésel' ? settingsNow.fuelPriceDieselCs : settingsNow.fuelPriceGasolineCs
+      const fuelPrice = vehicle.fuelPriceCs > 0 ? vehicle.fuelPriceCs : (vehicle.fuelType === 'Diésel' ? settingsNow.fuelPriceDieselCs : settingsNow.fuelPriceGasolineCs)
       const fuelEstimateCs = Number((current.km * vehicle.consumptionLPerKm * fuelPrice).toFixed(2))
       const monthlyCostCs = vehicle.financing.monthlyCostCs
       const marginCs = Number((current.incomeCs - fuelEstimateCs - monthlyCostCs).toFixed(2))
       const avgIncomePerTrip = current.trips > 0 ? current.incomeCs / current.trips : (completed.length ? completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0) / completed.length : 0)
       const breakEvenTrips = monthlyCostCs > 0 && avgIncomePerTrip > 0 ? Math.ceil(monthlyCostCs / avgIncomePerTrip) : 0
+      const avgKmPerTrip = current.trips > 0 ? current.km / current.trips : 0
+      const costPerKm = Number((vehicle.consumptionLPerKm * fuelPrice).toFixed(2))
+      const denominator = current.trips > 0 ? current.trips : vehicle.minTripsMonth > 0 ? vehicle.minTripsMonth : Math.max(1, breakEvenTrips)
+      const breakEvenFareCs = Number(((monthlyCostCs / denominator) + costPerKm * avgKmPerTrip).toFixed(2))
       return {
         plate: vehicle.plate,
         model: vehicle.model,
@@ -817,8 +858,11 @@ export class OperationsStore implements OnModuleDestroy {
         kmMonth: Number(current.km.toFixed(1)),
         incomeMonthCs: Number(current.incomeCs.toFixed(2)),
         fuelEstimateCs,
-        marginCs,
+        fuelPriceCs: Number(fuelPrice.toFixed(2)),
+        costPerKmCs: costPerKm,
+        breakEvenFareCs,
         breakEvenTrips,
+        marginCs,
       }
     })
     return {

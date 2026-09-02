@@ -124,7 +124,7 @@ export class UsersStore implements OnModuleDestroy {
     return this.getUser(id)
   }
 
-  updateUser(id: string, input: { role?: UserRole; status?: 'Activo' | 'Inactivo'; password?: string }) {
+  updateUser(id: string, input: { name?: string; email?: string; phone?: string; role?: UserRole; status?: 'Activo' | 'Inactivo'; password?: string }) {
     const user = this.getUser(id)
     if (input.role && !ROLES.some((role) => role.code === input.role)) {
       throw new BadRequestException('Rol no válido')
@@ -132,8 +132,8 @@ export class UsersStore implements OnModuleDestroy {
     if (input.password) {
       this.db.prepare('UPDATE app_users SET password_hash = ? WHERE id = ?').run(hashPassword(input.password), id)
     }
-    this.db.prepare('UPDATE app_users SET role = ?, status = ? WHERE id = ?')
-      .run(input.role ?? user.role, input.status ?? user.status, id)
+    this.db.prepare('UPDATE app_users SET role = ?, status = ?, name = ?, phone = ?, email = ? WHERE id = ?')
+      .run(input.role ?? user.role, input.status ?? user.status, input.name ?? user.name, input.phone ?? user.phone, input.email ?? user.email, id)
     return this.getUser(id)
   }
 

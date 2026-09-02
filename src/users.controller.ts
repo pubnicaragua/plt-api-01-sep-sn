@@ -26,6 +26,19 @@ class CreateUserDto {
 
 class UpdateUserDto {
   @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string
+
+  @IsOptional()
+  @IsEmail()
+  email?: string
+
+  @IsOptional()
+  @IsString()
+  phone?: string
+
+  @IsOptional()
   @IsIn(['admin', 'management', 'operations', 'finance', 'support', 'driver', 'corporate', 'store'])
   role?: UserRole
 

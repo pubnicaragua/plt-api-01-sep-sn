@@ -35,6 +35,8 @@ export interface Trip {
   scheduledDate?: string
   scheduledTime?: string
   isScheduled?: boolean
+  weight?: number
+  weightUnit?: 'kg' | 'lb'
   paymentMethod?: 'Efectivo' | 'Transferencia' | 'Financiamiento' | 'Contra entrega' | ''
   paymentRef?: string
   paymentAmount?: number

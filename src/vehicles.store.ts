@@ -1,11 +1,11 @@
-﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 
 export type VehicleStatus = 'Disponible' | 'En servicio' | 'Mantenimiento' | 'Fuera de servicio'
 export type FuelType = 'Gasolina' | 'Diésel' | 'Eléctrico' | 'Híbrido'
-export type VehicleFunction = 'taxi' | 'delivery' | 'mixto' | ''
+export type VehicleFunction = 'privado' | 'delivery' | 'camion' | ''
 
 export interface VehicleFinancing {
   financed: boolean
@@ -46,6 +46,8 @@ export interface Vehicle {
   vehicleFunction: VehicleFunction
   logistics: string
   minTripsMonth: number
+  fuelPriceCs: number
+  tankCapacityL: number
   financing: VehicleFinancing
 }
 
@@ -86,6 +88,8 @@ interface VehicleRow {
   lease_monthly_payment_cs: number
   residual_value_cs: number
   depreciation_pct: number
+  fuel_price_cs: number
+  tank_capacity_l: number
 }
 
 interface MaintenanceRow {
@@ -97,7 +101,7 @@ interface MaintenanceRow {
   cost: number
 }
 
-const VEHICLE_SEED: Array<Omit<Vehicle, 'status' | 'vehicleFunction' | 'logistics' | 'minTripsMonth' | 'financing'> & { status: VehicleStatus }> = [
+const VEHICLE_SEED: Array<Omit<Vehicle, 'status' | 'vehicleFunction' | 'logistics' | 'minTripsMonth' | 'fuelPriceCs' | 'tankCapacityL' | 'financing'> & { status: VehicleStatus }> = [
   { id: 'vh-001', plate: 'M 123-456', model: 'Ford Transit 2023', type: 'Panel', capacityKg: 1200, year: 2023, status: 'En servicio', driver: 'Juan Pérez', lastMaintenance: '10 Ago 2026', nextMaintenance: '10 Sep 2026', totalTrips: 152, fuelType: 'Diésel', consumptionLPerKm: 0.12, priceCs: 1850000, odometerKm: 48250, imageUrl: '' },
   { id: 'vh-002', plate: 'M 234-567', model: 'Nissan NV200 2022', type: 'Panel', capacityKg: 750, year: 2022, status: 'En servicio', driver: 'Roberto Sánchez', lastMaintenance: '18 Ago 2026', nextMaintenance: '18 Sep 2026', totalTrips: 138, fuelType: 'Gasolina', consumptionLPerKm: 0.09, priceCs: 1350000, odometerKm: 61300, imageUrl: '' },
   { id: 'vh-003', plate: 'M 345-678', model: 'Chevrolet Express 2021', type: 'Van', capacityKg: 900, year: 2021, status: 'En servicio', driver: 'Ana López', lastMaintenance: '22 Ago 2026', nextMaintenance: '22 Sep 2026', totalTrips: 141, fuelType: 'Gasolina', consumptionLPerKm: 0.14, priceCs: 1590000, odometerKm: 73810, imageUrl: '' },
@@ -133,6 +137,8 @@ const VEHICLE_COLUMNS = [
   'lease_monthly_payment_cs REAL NOT NULL DEFAULT 0',
   'residual_value_cs REAL NOT NULL DEFAULT 0',
   'depreciation_pct REAL NOT NULL DEFAULT 20',
+  'fuel_price_cs REAL NOT NULL DEFAULT 0',
+  'tank_capacity_l REAL NOT NULL DEFAULT 0',
 ]
 
 interface SeedFinance {
@@ -149,10 +155,10 @@ interface SeedFinance {
 }
 
 const VEHICLE_FINANCE_SEED: Record<string, SeedFinance> = {
-  'M 123-456': { financed: true, downPaymentCs: 555000, leaseStartMonthsAgo: 26, leaseTermMonths: 60, leaseMonthlyPaymentCs: 42000, residualValueCs: 370000, depreciationPct: 16, vehicleFunction: 'taxi', logistics: 'Servicio ejecutivo a empresas (paquetería gerencial)', minTripsMonth: 90 },
+  'M 123-456': { financed: true, downPaymentCs: 555000, leaseStartMonthsAgo: 26, leaseTermMonths: 60, leaseMonthlyPaymentCs: 42000, residualValueCs: 370000, depreciationPct: 16, vehicleFunction: 'privado', logistics: 'Servicio ejecutivo a empresas (paquetería gerencial)', minTripsMonth: 90 },
   'M 234-567': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: 'Entregas urbanas de farmacia y tiendas', minTripsMonth: 120 },
   'M 345-678': { financed: true, downPaymentCs: 477000, leaseStartMonthsAgo: 40, leaseTermMonths: 48, leaseMonthlyPaymentCs: 28500, residualValueCs: 0, depreciationPct: 18, vehicleFunction: 'delivery', logistics: 'Reparto a tiendas y supermercados', minTripsMonth: 110 },
-  'M 456-789': { financed: true, downPaymentCs: 726000, leaseStartMonthsAgo: 8, leaseTermMonths: 60, leaseMonthlyPaymentCs: 39800, residualValueCs: 484000, depreciationPct: 15, vehicleFunction: 'taxi', logistics: 'Servicio ejecutivo y traslado de personal', minTripsMonth: 80 },
+  'M 456-789': { financed: true, downPaymentCs: 726000, leaseStartMonthsAgo: 8, leaseTermMonths: 60, leaseMonthlyPaymentCs: 39800, residualValueCs: 484000, depreciationPct: 15, vehicleFunction: 'privado', logistics: 'Servicio ejecutivo y traslado de personal', minTripsMonth: 80 },
   'M 567-890': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: '3P · Proveedor externo (coordinado, no financiado)', minTripsMonth: 100, },
   'M 678-901': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: 'Entregas exprés y paquetería urbana', minTripsMonth: 100 },
   'M 789-012': { financed: true, downPaymentCs: 1005000, leaseStartMonthsAgo: 14, leaseTermMonths: 72, leaseMonthlyPaymentCs: 46500, residualValueCs: 670000, depreciationPct: 14, vehicleFunction: 'delivery', logistics: '3P · Distribución mayorista (carga pesada)', minTripsMonth: 70 },
@@ -225,6 +231,27 @@ export class VehiclesStore implements OnModuleDestroy {
       }
       this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_finance_v1', '1')").run()
     }
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('veh_catalog_v1')) {
+      this.db.prepare("UPDATE vehicles SET vehicle_function = 'privado' WHERE vehicle_function = 'taxi'").run()
+      this.db.prepare("UPDATE vehicles SET vehicle_function = '' WHERE vehicle_function = 'mixto'").run()
+      const catalog = this.db.prepare('UPDATE vehicles SET tank_capacity_l = ?, fuel_price_cs = ? WHERE plate = ?')
+      catalog.run(22, 54, 'M 123-456')
+      catalog.run(14, 62.5, 'M 234-567')
+      catalog.run(30, 62.5, 'M 345-678')
+      catalog.run(34, 54, 'M 456-789')
+      catalog.run(17, 62.5, 'M 567-890')
+      catalog.run(15, 62.5, 'M 678-901')
+      catalog.run(75, 54, 'M 789-012')
+      catalog.run(83, 54, 'M 890-123')
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_catalog_v1', '1')").run()
+    }
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('veh_catalog_v3')) {
+      this.db.prepare("UPDATE vehicles SET vehicle_function = 'delivery' WHERE lower(type) LIKE '%moto%'").run()
+      this.db.prepare("UPDATE vehicles SET vehicle_function = 'camion' WHERE plate IN ('M 789-012', 'M 890-123')").run()
+      this.db.prepare("UPDATE vehicles SET vehicle_function = 'privado' WHERE lower(type) NOT LIKE '%moto%' AND plate NOT IN ('M 789-012', 'M 890-123')").run()
+      this.db.prepare("DELETE FROM incoex_meta WHERE key = 'veh_catalog_v2'").run()
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_catalog_v3', '1')").run()
+    }
   }
 
   list() {
@@ -238,18 +265,29 @@ export class VehiclesStore implements OnModuleDestroy {
     return toVehicle(row)
   }
 
-  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number }) {
+  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number }) {
+    this.assertFunctionType(input.type, input.vehicleFunction)
     const duplicate = this.db.prepare('SELECT 1 AS present FROM vehicles WHERE plate = ?').get(input.plate)
     if (duplicate) throw new BadRequestException('Ya existe un vehículo con esa placa')
     const id = `vh-${String(Date.now()).slice(-6)}`
     const now = new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
-    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0, input.vehicleFunction ?? '', input.logistics ?? '', input.minTripsMonth ?? 0, input.financed ? 1 : 0, input.downPaymentCs ?? 0, input.leaseStart ?? '', input.leaseTermMonths ?? 0, input.leaseMonthlyPaymentCs ?? 0, input.residualValueCs ?? 0, input.depreciationPct ?? 20)
+    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct, fuel_price_cs, tank_capacity_l) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0, input.vehicleFunction ?? '', input.logistics ?? '', input.minTripsMonth ?? 0, input.financed ? 1 : 0, input.downPaymentCs ?? 0, input.leaseStart ?? '', input.leaseTermMonths ?? 0, input.leaseMonthlyPaymentCs ?? 0, input.residualValueCs ?? 0, input.depreciationPct ?? 20, input.fuelPriceCs ?? 0, input.tankCapacityL ?? 0)
     return this.get(id)
   }
 
-  update(id: string, input: { fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number }) {
-    this.get(id)
+  private assertFunctionType(type: string, vehicleFunction?: VehicleFunction) {
+    if (vehicleFunction === 'delivery' && !/moto/i.test(String(type ?? ''))) {
+      throw new BadRequestException('La función Delivery es solo para motocicletas; el tipo debe ser Moto')
+    }
+  }
+
+  update(id: string, input: { type?: string; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number; fuelPriceCs?: number; tankCapacityL?: number }) {
+    const current = this.get(id)
+    if (input.vehicleFunction !== undefined || input.type !== undefined) {
+      this.assertFunctionType(input.type ?? current.type, input.vehicleFunction ?? current.vehicleFunction)
+    }
+    if (input.type !== undefined) this.db.prepare('UPDATE vehicles SET type = ? WHERE id = ?').run(input.type, id)
     if (input.fuelType !== undefined) this.db.prepare('UPDATE vehicles SET fuel_type = ? WHERE id = ?').run(input.fuelType, id)
     if (input.consumptionLPerKm !== undefined) this.db.prepare('UPDATE vehicles SET consumption_l_per_km = ? WHERE id = ?').run(input.consumptionLPerKm, id)
     if (input.priceCs !== undefined) this.db.prepare('UPDATE vehicles SET price_cs = ? WHERE id = ?').run(input.priceCs, id)
@@ -265,6 +303,8 @@ export class VehiclesStore implements OnModuleDestroy {
     if (input.leaseMonthlyPaymentCs !== undefined) this.db.prepare('UPDATE vehicles SET lease_monthly_payment_cs = ? WHERE id = ?').run(input.leaseMonthlyPaymentCs, id)
     if (input.residualValueCs !== undefined) this.db.prepare('UPDATE vehicles SET residual_value_cs = ? WHERE id = ?').run(input.residualValueCs, id)
     if (input.depreciationPct !== undefined) this.db.prepare('UPDATE vehicles SET depreciation_pct = ? WHERE id = ?').run(Math.max(0, Math.min(90, input.depreciationPct)), id)
+    if (input.fuelPriceCs !== undefined) this.db.prepare('UPDATE vehicles SET fuel_price_cs = ? WHERE id = ?').run(Math.max(0, input.fuelPriceCs), id)
+    if (input.tankCapacityL !== undefined) this.db.prepare('UPDATE vehicles SET tank_capacity_l = ? WHERE id = ?').run(Math.max(0, input.tankCapacityL), id)
     return this.get(id)
   }
 
@@ -333,6 +373,19 @@ export class VehiclesStore implements OnModuleDestroy {
     }
     const insertMaintenance = this.db.prepare('INSERT INTO maintenance_records (id, vehicle_id, plate, maintenance_date, description, cost) VALUES (?, ?, ?, ?, ?, ?)')
     for (const record of MAINTENANCE_SEED) insertMaintenance.run(record.id, record.vehicleId, this.get(record.vehicleId).plate, record.date, record.description, record.cost)
+    this.seedCatalog()
+  }
+
+  private seedCatalog() {
+    const catalog = this.db.prepare('UPDATE vehicles SET tank_capacity_l = ?, fuel_price_cs = ? WHERE plate = ?')
+    catalog.run(22, 54, 'M 123-456')
+    catalog.run(14, 62.5, 'M 234-567')
+    catalog.run(30, 62.5, 'M 345-678')
+    catalog.run(34, 54, 'M 456-789')
+    catalog.run(17, 62.5, 'M 567-890')
+    catalog.run(15, 62.5, 'M 678-901')
+    catalog.run(75, 54, 'M 789-012')
+    catalog.run(83, 54, 'M 890-123')
   }
 }
 
@@ -367,6 +420,8 @@ function toVehicle(row: VehicleRow): Vehicle {
     vehicleFunction: (row.vehicle_function ?? '') as VehicleFunction,
     logistics: row.logistics ?? '',
     minTripsMonth: row.min_trips_month ?? 0,
+    fuelPriceCs: Number(row.fuel_price_cs ?? 0),
+    tankCapacityL: Number(row.tank_capacity_l ?? 0),
     financing: {
       financed,
       downPaymentCs: row.down_payment_cs ?? 0,

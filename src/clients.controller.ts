@@ -146,6 +146,12 @@ export class ClientsController {
     return this.store.listClients()
   }
 
+  @Get(':id')
+  @ApiOperation({ summary: 'Perfil consolidado del cliente: historial de viajes, servicios y facturación' })
+  profile(@Param('id') id: string) {
+    return this.store.getClientProfile(id)
+  }
+
   @Post()
   @ApiOperation({ summary: 'Registrar un cliente nuevo (activo por defecto)' })
   create(@Body() body: CreateClientDto) {
