@@ -1,8 +1,9 @@
-﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
+﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy, UnauthorizedException } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripStatus } from './domain'
+import { verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
 
@@ -108,7 +109,12 @@ export class OperationsStore implements OnModuleDestroy {
         status TEXT NOT NULL DEFAULT 'Disponible',
         route TEXT NOT NULL DEFAULT 'Sin viaje activo',
         latitude REAL NOT NULL DEFAULT 12.114993,
-        longitude REAL NOT NULL DEFAULT -86.236174
+        longitude REAL NOT NULL DEFAULT -86.236174,
+        external INTEGER NOT NULL DEFAULT 0,
+        license_no TEXT NOT NULL DEFAULT '',
+        license_exp TEXT NOT NULL DEFAULT '',
+        doc_no TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT ''
       );
       CREATE TABLE IF NOT EXISTS incidents (
         id TEXT PRIMARY KEY,
@@ -126,6 +132,7 @@ export class OperationsStore implements OnModuleDestroy {
     `)
     this.migrateClients()
     this.migrateIncidents()
+    this.migrateDrivers()
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS driver_locations (
         driver TEXT PRIMARY KEY,
@@ -253,8 +260,17 @@ export class OperationsStore implements OnModuleDestroy {
     for (const incident of this.incidents) insert.run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status)
   }
 
-  private migrateClients() {
-    const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+  private migrateDrivers() {
+    const columns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+    if (!columns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('external')) this.db.exec('ALTER TABLE drivers ADD COLUMN external INTEGER NOT NULL DEFAULT 0')
+    if (!columns.has('license_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_no TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('license_exp')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_exp TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('doc_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN doc_no TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('notes')) this.db.exec("ALTER TABLE drivers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+  }
+
+  private migrateClients() {    const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!columns.has('address')) this.db.exec("ALTER TABLE clients ADD COLUMN address TEXT NOT NULL DEFAULT ''")
     if (!columns.has('contact')) this.db.exec("ALTER TABLE clients ADD COLUMN contact TEXT NOT NULL DEFAULT ''")
     if (!columns.has('tax_id')) this.db.exec("ALTER TABLE clients ADD COLUMN tax_id TEXT NOT NULL DEFAULT ''")
@@ -399,7 +415,7 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedDrivers() {
-    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '')
   }
 
@@ -1107,8 +1123,14 @@ getClientProfile(id: string) {
     this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
   }
 
-  login(input: { email: string; role: 'company' | 'driver' | 'admin' }) {
+  login(input: { email: string; password?: string; role: 'company' | 'driver' | 'admin' }) {
     const normalized = input.email.trim().toLowerCase()
+    const stored = this.db.prepare('SELECT id, password_hash FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string; password_hash: string } | undefined
+    if (stored && stored.password_hash) {
+      if (!input.password || !verifyPassword(input.password, stored.password_hash)) {
+        throw new UnauthorizedException('Credenciales incorrectas para este usuario')
+      }
+    }
     const demoDrivers: Record<string, string> = {
       'carlos.diaz@incoex.com.ni': 'drv-006',
       'jose.martinez@incoex.com.ni': 'drv-007',

@@ -10,6 +10,13 @@ export function hashPassword(password: string): string {
   return `${salt}.${hash}`
 }
 
+export function verifyPassword(password: string, stored: string): boolean {
+  if (!stored || !stored.includes('.')) return false
+  const [salt, hash] = stored.split('.')
+  if (!salt || !hash) return false
+  return scryptSync(password, salt, 48).toString('hex') === hash
+}
+
 export type UserRole =
   | 'admin'
   | 'management'
@@ -100,6 +107,7 @@ export class UsersStore implements OnModuleDestroy {
     if (!userColumns.has('session_state')) this.db.exec("ALTER TABLE app_users ADD COLUMN session_state TEXT NOT NULL DEFAULT 'Activa'")
     const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM app_users').get() as { count: number }).count)
     if (count === 0) this.seed()
+    this.db.prepare("UPDATE app_users SET password_hash = ? WHERE password_hash = ''").run(hashPassword('Admin@2026'))
   }
 
   listUsers() {
@@ -109,6 +117,13 @@ export class UsersStore implements OnModuleDestroy {
 
   listRoles() {
     return ROLES
+  }
+
+  updateRolePermissions(code: UserRole, permissions: string[]) {
+    const role = ROLES.find((candidate) => candidate.code === code)
+    if (!role) throw new NotFoundException('Rol no encontrado')
+    role.permissions = permissions
+    return role
   }
 
   createUser(input: { name: string; email: string; phone?: string; role: UserRole; password?: string }) {

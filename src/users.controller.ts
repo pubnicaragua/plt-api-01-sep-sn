@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
+import { IsArray, IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
 import { UsersStore, type UserRole } from './users.store'
 
 class CreateUserDto {
@@ -52,6 +52,12 @@ class UpdateUserDto {
   password?: string
 }
 
+class UpdatePermissionsDto {
+  @IsArray()
+  @IsString({ each: true })
+  permissions!: string[]
+}
+
 @ApiTags('admin')
 @Controller('admin')
 export class UsersController {
@@ -67,6 +73,12 @@ export class UsersController {
   @ApiOperation({ summary: 'Matriz de los ocho roles contractuales con permisos' })
   listRoles() {
     return this.store.listRoles()
+  }
+
+  @Patch('roles/:code')
+  @ApiOperation({ summary: 'Configurar los permisos de un rol (roles configurables)' })
+  updateRolePermissions(@Param('code') code: string, @Body() body: UpdatePermissionsDto) {
+    return this.store.updateRolePermissions(code as UserRole, body.permissions)
   }
 
   @Post('users')

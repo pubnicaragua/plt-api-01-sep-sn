@@ -11,6 +11,46 @@ interface PlaceOut {
   longitude?: number
 }
 
+const NICA_CITIES = [
+  { name: 'Managua', zone: 'Departamento de Managua', latitude: 12.1149, longitude: -86.2362 },
+  { name: 'León', zone: 'Departamento de León', latitude: 12.4359, longitude: -86.8794 },
+  { name: 'Granada', zone: 'Departamento de Granada', latitude: 11.9299, longitude: -85.9562 },
+  { name: 'Masaya', zone: 'Departamento de Masaya', latitude: 11.9745, longitude: -86.0946 },
+  { name: 'Estelí', zone: 'Departamento de Estelí', latitude: 13.092, longitude: -86.3552 },
+  { name: 'Matagalpa', zone: 'Departamento de Matagalpa', latitude: 12.9286, longitude: -85.9189 },
+  { name: 'Chinandega', zone: 'Departamento de Chinandega', latitude: 12.6293, longitude: -87.1275 },
+  { name: 'Jinotega', zone: 'Departamento de Jinotega', latitude: 13.0912, longitude: -86.0017 },
+  { name: 'Rivas', zone: 'Departamento de Rivas', latitude: 11.437, longitude: -85.8265 },
+  { name: 'Bluefields', zone: 'RAAS', latitude: 12.0137, longitude: -83.7633 },
+  { name: 'Puerto Cabezas', zone: 'RACCN', latitude: 14.0317, longitude: -83.3822 },
+  { name: 'Somoto', zone: 'Departamento de Madriz', latitude: 13.4815, longitude: -86.5815 },
+  { name: 'Ocotal', zone: 'Departamento de Nueva Segovia', latitude: 13.6347, longitude: -86.4753 },
+  { name: 'Boaco', zone: 'Departamento de Boaco', latitude: 12.4719, longitude: -85.6615 },
+  { name: 'Juigalpa', zone: 'Departamento de Chontales', latitude: 12.106, longitude: -85.365 },
+  { name: 'Nueva Guinea', zone: 'RAAS', latitude: 11.6884, longitude: -84.4562 },
+  { name: 'San Juan del Sur', zone: 'Departamento de Rivas', latitude: 11.2516, longitude: -85.8729 },
+  { name: 'Tipitapa', zone: 'Departamento de Managua', latitude: 12.1983, longitude: -86.098 },
+  { name: 'Ciudad Sandino', zone: 'Departamento de Managua', latitude: 12.1598, longitude: -86.3625 },
+  { name: 'Diriamba', zone: 'Departamento de Carazo', latitude: 11.8574, longitude: -86.2406 },
+  { name: 'Jinotepe', zone: 'Departamento de Carazo', latitude: 11.8467, longitude: -86.2003 },
+  { name: 'Nagarote', zone: 'Departamento de León', latitude: 12.2671, longitude: -86.5706 },
+  { name: 'La Paz Centro', zone: 'Departamento de León', latitude: 12.343, longitude: -86.6706 },
+  { name: 'Masatepe', zone: 'Departamento de Masaya', latitude: 11.9156, longitude: -86.1453 },
+  { name: 'Condega', zone: 'Departamento de Estelí', latitude: 13.3663, longitude: -86.3958 },
+  { name: 'El Crucero', zone: 'Departamento de Managua', latitude: 11.9869, longitude: -86.3087 },
+  { name: 'Sébaco', zone: 'Departamento de Matagalpa', latitude: 12.854, longitude: -86.102 },
+  { name: 'Ticuantepe', zone: 'Departamento de Managua', latitude: 12.0242, longitude: -86.202 },
+  { name: 'Nindirí', zone: 'Departamento de Masaya', latitude: 11.9866, longitude: -86.1195 },
+  { name: 'Villa El Carmen', zone: 'Departamento de Managua', latitude: 11.981, longitude: -86.512 },
+]
+
+const ALL_PLACES = [...MANAGUA_PLACES, ...NICA_CITIES.map((city) => ({
+  name: city.name,
+  zone: city.zone,
+  latitude: city.latitude,
+  longitude: city.longitude,
+}))]
+
 @ApiTags('places')
 @Controller('places')
 export class PlacesController {
@@ -32,7 +72,7 @@ export class PlacesController {
   private localSuggestions(term: string) {
     const lower = term.toLowerCase().trim()
     const tokens = lower.split(/\s+/).filter((token) => token.length >= 2)
-    const scored = MANAGUA_PLACES.map((place) => {
+    const scored = ALL_PLACES.map((place) => {
       const nameLower = place.name.toLowerCase()
       const zoneLower = place.zone.toLowerCase()
       const haystack = `${nameLower} ${zoneLower}`
@@ -54,9 +94,9 @@ export class PlacesController {
       .slice(0, 8)
       .map(({ place }) => ({
         placeId: `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
-        description: `${place.name}, ${place.zone} · Managua`,
+        description: `${place.name}, ${place.zone} · Nicaragua`,
         main: place.name,
-        secondary: `${place.zone} · Managua`,
+        secondary: `${place.zone} · Nicaragua`,
         latitude: place.latitude,
         longitude: place.longitude,
       }))
@@ -129,7 +169,7 @@ export class PlacesController {
     if (!placeId) return {}
     if (placeId.startsWith('mg-')) {
       const name = placeId.slice(3).replaceAll('-', ' ')
-      const match = MANAGUA_PLACES.find((place) => place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === placeId.slice(3))
+      const match = ALL_PLACES.find((place) => place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === placeId.slice(3))
       if (match) return { latitude: match.latitude, longitude: match.longitude, name }
     }
     const detail = await this.googlePlaceDetail(placeId)
