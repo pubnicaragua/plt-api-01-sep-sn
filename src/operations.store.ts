@@ -258,6 +258,12 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('notes')) this.db.exec("ALTER TABLE clients ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
     if (!columns.has('credit_days')) this.db.exec('ALTER TABLE clients ADD COLUMN credit_days INTEGER NOT NULL DEFAULT 0')
     if (!columns.has('due_day')) this.db.exec('ALTER TABLE clients ADD COLUMN due_day INTEGER NOT NULL DEFAULT 0')
+    if (!columns.has('billing_period')) this.db.exec("ALTER TABLE clients ADD COLUMN billing_period TEXT NOT NULL DEFAULT 'semanal'")
+    if (!columns.has('billing_custom_days')) this.db.exec('ALTER TABLE clients ADD COLUMN billing_custom_days INTEGER NOT NULL DEFAULT 7')
+    if (!columns.has('billing_cut_day')) this.db.exec('ALTER TABLE clients ADD COLUMN billing_cut_day INTEGER NOT NULL DEFAULT 0')
+    if (!columns.has('billing_cut_time')) this.db.exec("ALTER TABLE clients ADD COLUMN billing_cut_time TEXT NOT NULL DEFAULT '22:00'")
+    if (!columns.has('billing_active')) this.db.exec('ALTER TABLE clients ADD COLUMN billing_active INTEGER NOT NULL DEFAULT 0')
+    if (!columns.has('whatsapp')) this.db.exec("ALTER TABLE clients ADD COLUMN whatsapp TEXT NOT NULL DEFAULT ''")
     const driverColumns = new Set((this.db.prepare('PRAGMA table_info(drivers)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!driverColumns.has('email')) this.db.exec("ALTER TABLE drivers ADD COLUMN email TEXT NOT NULL DEFAULT ''")
     if (!driverColumns.has('external')) this.db.exec('ALTER TABLE drivers ADD COLUMN external INTEGER NOT NULL DEFAULT 0')
@@ -329,6 +335,12 @@ export class OperationsStore implements OnModuleDestroy {
       status: row.status as Client['status'],
       creditDays: Number(row.credit_days ?? 0),
       dueDay: Number(row.due_day ?? 0),
+      billingPeriod: (row.billing_period ?? 'semanal') as Client['billingPeriod'],
+      billingCustomDays: Number(row.billing_custom_days ?? 7),
+      billingCutDay: Number(row.billing_cut_day ?? 0),
+      billingCutTime: String(row.billing_cut_time ?? '22:00'),
+      billingActive: Number(row.billing_active ?? 0) === 1,
+      whatsapp: String(row.whatsapp ?? ''),
     }))
   }
 
@@ -519,14 +531,15 @@ export class OperationsStore implements OnModuleDestroy {
   listIncidents() { return this.incidents }
   listHistory() { return this.history }
 
-  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number }) {
+  createClient(input: { name: string; phone?: string; email?: string; type?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string }) {
     const email = (input.email ?? '').trim().toLowerCase()
     const name = (input.name ?? '').trim()
     const existing = this.db.prepare('SELECT * FROM clients WHERE email = ? AND email != \'\' ORDER BY rowid ASC LIMIT 1').get(email) ?? this.db.prepare('SELECT * FROM clients WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
+    const billing = this.billingOf(input) ?? { billingPeriod: 'semanal', billingCustomDays: 7, billingCutDay: 0, billingCutTime: '22:00', billingActive: false, whatsapp: '' }
     if (existing) {
       const row = existing as unknown as Record<string, unknown>
-      this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ? WHERE id = ?')
-        .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), input.creditDays ?? Number(row.credit_days ?? 0), input.dueDay ?? Number(row.due_day ?? 0), String(row.id))
+      this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ? WHERE id = ?')
+        .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), input.creditDays ?? Number(row.credit_days ?? 0), input.dueDay ?? Number(row.due_day ?? 0), String(billing.billingPeriod ?? 'semanal'), billing.billingCustomDays ?? 7, billing.billingCutDay ?? 0, String(billing.billingCutTime ?? '22:00'), billing.billingActive ? 1 : 0, String(billing.whatsapp ?? ''), String(row.id))
       return { ...this.listClients().find((client) => client.id === row.id), existed: true }
     }
     const client: Client = {
@@ -544,14 +557,29 @@ export class OperationsStore implements OnModuleDestroy {
       status: 'Activo',
       creditDays: Math.max(0, Math.round(input.creditDays ?? 0)),
       dueDay: Math.max(0, Math.min(28, Math.round(input.dueDay ?? 0))),
+      ...billing,
     }
     this.clients.unshift(client)
-    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, credit_days, due_day, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.trips, client.activeRequests, client.status)
+    this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, credit_days, due_day, billing_period, billing_custom_days, billing_cut_day, billing_cut_time, billing_active, whatsapp, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, String(client.billingPeriod ?? 'semanal'), client.billingCustomDays ?? 7, client.billingCutDay ?? 0, String(client.billingCutTime ?? '22:00'), client.billingActive ? 1 : 0, String(client.whatsapp ?? ''), client.trips, client.activeRequests, client.status)
     return client
   }
 
-  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number }) {
+  private billingOf(input: { billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string } | null): Pick<Client, 'billingPeriod' | 'billingCustomDays' | 'billingCutDay' | 'billingCutTime' | 'billingActive' | 'whatsapp'> | null {
+    if (!input) return null
+    const period = ['', 'semanal', 'quincenal', 'mensual', 'personalizado'].includes(String(input.billingPeriod ?? '')) ? (input.billingPeriod as Client['billingPeriod']) : null
+    if (period === null && input.billingPeriod === undefined) return null
+    return {
+      billingPeriod: period ?? 'semanal',
+      billingCustomDays: Math.max(1, Math.min(90, Math.round(input.billingCustomDays ?? 7))),
+      billingCutDay: Math.max(0, Math.min(6, Math.round(input.billingCutDay ?? 0))),
+      billingCutTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(String(input.billingCutTime ?? '',)) ? String(input.billingCutTime) : '22:00',
+      billingActive: Boolean(input.billingActive),
+      whatsapp: String(input.whatsapp ?? '').replace(/[^\d]/g, ''),
+    }
+  }
+
+  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string }) {
     const client = this.clients.find((candidate) => candidate.id === id)
     if (!client) throw new NotFoundException('Cliente no encontrado')
     if (input.phone !== undefined) client.phone = input.phone
@@ -562,8 +590,14 @@ export class OperationsStore implements OnModuleDestroy {
     if (input.notes !== undefined) client.notes = input.notes
     if (input.creditDays !== undefined) client.creditDays = Math.max(0, Math.round(input.creditDays))
     if (input.dueDay !== undefined) client.dueDay = Math.max(0, Math.min(28, Math.round(input.dueDay)))
-    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ? WHERE id = ?')
-      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, id)
+    if (input.billingPeriod !== undefined) client.billingPeriod = input.billingPeriod as Client['billingPeriod']
+    if (input.billingCustomDays !== undefined) client.billingCustomDays = Math.max(1, Math.min(90, Math.round(input.billingCustomDays)))
+    if (input.billingCutDay !== undefined) client.billingCutDay = Math.max(0, Math.min(6, Math.round(input.billingCutDay)))
+    if (input.billingCutTime !== undefined) client.billingCutTime = String(input.billingCutTime)
+    if (input.billingActive !== undefined) client.billingActive = Boolean(input.billingActive)
+    if (input.whatsapp !== undefined) client.whatsapp = String(input.whatsapp).replace(/[^\d]/g, '')
+    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ? WHERE id = ?')
+      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.billingPeriod ?? 'semanal', client.billingCustomDays ?? 7, client.billingCutDay ?? 0, client.billingCutTime ?? '22:00', client.billingActive ? 1 : 0, client.whatsapp ?? '', id)
     return client
   }
 
@@ -1021,6 +1055,9 @@ export class OperationsStore implements OnModuleDestroy {
         { latitude: 12.114, longitude: -86.244, label: 'Destino' },
       )
     }
+    const driverLocation = trip.driver && trip.driver !== 'Sin asignar'
+      ? this.getDriverLocation(trip.driver)
+      : undefined
     return {
       tripId: trip.id,
       status: trip.status,
@@ -1029,6 +1066,23 @@ export class OperationsStore implements OnModuleDestroy {
       distanceKm: trip.distanceKm ?? 0,
       estimatedCostCs: trip.estimatedCostCs ?? 0,
       route,
+      driverLocation,
+      shareUrl: `${process.env.WEB_TRACK_BASE_URL ?? 'https://plt-web-01-sep-sn.vercel.app'}/track/${encodeURIComponent(trip.id)}`,
+    }
+  }
+
+  getDriverLocation(driver: string) {
+    const row = this.db
+      .prepare('SELECT latitude, longitude, accuracy, speed_kmh, source, updated_at FROM driver_locations WHERE driver = ?')
+      .get(driver) as unknown as { latitude: number; longitude: number; accuracy: number; speed_kmh: number; source: string; updated_at: number } | undefined
+    if (!row) return undefined
+    return {
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      accuracy: Number(row.accuracy),
+      speedKmh: Number(row.speed_kmh),
+      source: String(row.source),
+      updatedAt: Number(row.updated_at),
     }
   }
 

@@ -83,6 +83,46 @@ export interface Client {
   status: 'Activo' | 'Suspendido'
   creditDays?: number
   dueDay?: number
+  billingPeriod?: BillingPeriod
+  billingCustomDays?: number
+  billingCutDay?: number
+  billingCutTime?: string
+  billingActive?: boolean
+  whatsapp?: string
+}
+
+export type BillingPeriod = '' | 'semanal' | 'quincenal' | 'mensual' | 'personalizado'
+
+export interface CorteItem {
+  id: string
+  date: string
+  origin: string
+  destination: string
+  description?: string
+  packages: number
+  status: string
+  priceCs: number
+}
+
+export interface Corte {
+  id: string
+  client: string
+  periodStart: string
+  periodEnd: string
+  periodLabel: string
+  items: CorteItem[]
+  totalCs: number
+  previousDebtCs: number
+  grandTotalCs: number
+  status: 'pendiente' | 'pagado' | 'anulado'
+  createdAt: string
+  paidAt?: string
+  paidAmountCs?: number
+  method?: string
+  notes?: string
+  sentWhatsapp: boolean
+  period: BillingPeriod | 'auto'
+  customDays?: number
 }
 
 export interface Incident {

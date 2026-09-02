@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class CreateClientDto {
@@ -45,6 +45,32 @@ class CreateClientDto {
   @IsInt()
   @Min(0)
   dueDay?: number
+
+  @IsOptional()
+  @IsString()
+  billingPeriod?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  billingCustomDays?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  billingCutDay?: number
+
+  @IsOptional()
+  @IsString()
+  billingCutTime?: string
+
+  @IsOptional()
+  @IsBoolean()
+  billingActive?: boolean
+
+  @IsOptional()
+  @IsString()
+  whatsapp?: string
 }
 
 class UpdateClientDto {
@@ -81,6 +107,32 @@ class UpdateClientDto {
   @IsInt()
   @Min(0)
   dueDay?: number
+
+  @IsOptional()
+  @IsString()
+  billingPeriod?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  billingCustomDays?: number
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  billingCutDay?: number
+
+  @IsOptional()
+  @IsString()
+  billingCutTime?: string
+
+  @IsOptional()
+  @IsBoolean()
+  billingActive?: boolean
+
+  @IsOptional()
+  @IsString()
+  whatsapp?: string
 }
 
 @ApiTags('clients')

@@ -2,38 +2,47 @@ import { Controller, Get, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { MANAGUA_PLACES } from './managua.places'
 
+interface PlaceOut {
+  placeId: string
+  description: string
+  main: string
+  secondary: string
+  latitude?: number
+  longitude?: number
+}
+
 @ApiTags('places')
 @Controller('places')
 export class PlacesController {
   @Get('autocomplete')
-  @ApiOperation({ summary: 'Autocomplete de lugares de Managua: catálogo local + Google Places (si hay key)' })
+  @ApiOperation({ summary: 'Autocomplete de lugares de todo Nicaragua (Google Places; catálogo local como respaldo)' })
   async autocomplete(@Query('q') query: string) {
-    if (!query || query.trim().length < 1) return []
+    if (!query || query.trim().length < 2) return []
 
-    const term = query.trim().toLowerCase()
+    const term = query.trim()
 
-    const startsOrContains = (text: string) => {
-      const lower = text.toLowerCase()
-      return lower.startsWith(term) || lower.includes(term)
-    }
+    // 1) Google Places primero: cualquier lugar de Nicaragua
+    const google = await this.googleSuggestions(term)
+    if (google.length > 0) return google
 
+    // 2) Respaldo local (sin key de Google o sin respuesta): catálogo + búsqueda difusa
+    return this.localSuggestions(term)
+  }
+
+  private localSuggestions(term: string) {
+    const lower = term.toLowerCase()
     const scored = MANAGUA_PLACES.map((place) => {
-      const haystack = `${place.name} ${place.zone}`
       const nameLower = place.name.toLowerCase()
-      let score = 0
-      if (nameLower.startsWith(term)) score = 3
-      else if (nameLower === term) score = 4
-      else if (`${place.name} ${place.zone}`.toLowerCase().startsWith(term)) score = 2
-      else if (nameLower.includes(term)) score = 1
-      else if (place.zone.toLowerCase().includes(term)) score = 0
-      else score = -1
+      let score = -1
+      if (nameLower === lower) score = 100
+      else if (nameLower.startsWith(lower)) score = 60
+      else if (nameLower.includes(lower)) score = 30
+      else if (place.zone.toLowerCase().includes(lower)) score = 10
       return { place, score }
     })
-      .filter((entry) => startsOrContains(`${entry.place.name} ${entry.place.zone}`))
+      .filter(({ score }) => score >= 0)
       .sort((a, b) => b.score - a.score)
-
-    const local = scored
-      .slice(0, 10)
+      .slice(0, 8)
       .map(({ place }) => ({
         placeId: `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
         description: `${place.name}, ${place.zone} · Managua`,
@@ -42,53 +51,10 @@ export class PlacesController {
         latitude: place.latitude,
         longitude: place.longitude,
       }))
-
-    const google = await this.googleSuggestions(term)
-
-    const seen = new Set(local.map((item) => item.main.toLowerCase()))
-    const merged: Array<{ placeId: string; description: string; main: string; secondary: string; latitude?: number; longitude?: number }> = [...local]
-    for (const prediction of google) {
-      const key = prediction.main.toLowerCase()
-      if (!seen.has(key)) {
-        merged.push(prediction)
-        seen.add(key)
-      }
-    }
-    return merged.slice(0, 10)
+    return scored
   }
 
-  @Get('detail')
-  @ApiOperation({ summary: 'Coordenadas de un lugar sugerido (catálogo local o Google Places)' })
-  async detail(@Query('place_id') placeId: string) {
-    if (!placeId) return null
-    if (placeId.startsWith('mg-')) {
-      const local = MANAGUA_PLACES.find((place) => `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}` === placeId)
-      if (local) return { placeId, latitude: local.latitude, longitude: local.longitude }
-    }
-    const key = process.env.GOOGLE_MAPS_API_KEY
-    if (key && key.trim().length >= 20) {
-      try {
-        const url = new URL('https://maps.googleapis.com/maps/api/place/details/json')
-        url.searchParams.set('place_id', placeId)
-        url.searchParams.set('fields', 'geometry')
-        url.searchParams.set('language', 'es')
-        url.searchParams.set('key', key)
-        const response = await fetch(url)
-        const data = (await response.json()) as {
-          status?: string
-          result?: { geometry?: { location?: { lat: number; lng: number } } }
-        }
-        if (data.status === 'OK' && data.result?.geometry?.location) {
-          return { placeId, latitude: data.result.geometry.location.lat, longitude: data.result.geometry.location.lng }
-        }
-      } catch {
-        // sin coordenadas; el cliente queda con el lugar seleccionado sin punto
-      }
-    }
-    return null
-  }
-
-  private async googleSuggestions(term: string) {
+  private async googleSuggestions(term: string): Promise<PlaceOut[]> {
     const key = process.env.GOOGLE_MAPS_API_KEY
     if (!key || key.trim().length < 20) return []
 
@@ -96,8 +62,6 @@ export class PlacesController {
       const url = new URL('https://maps.googleapis.com/maps/api/place/autocomplete/json')
       url.searchParams.set('input', term)
       url.searchParams.set('components', 'country:ni')
-      url.searchParams.set('location', '12.114993,-86.236174')
-      url.searchParams.set('radius', '30000')
       url.searchParams.set('language', 'es')
       url.searchParams.set('key', key)
 
@@ -115,16 +79,59 @@ export class PlacesController {
 
       if (data.status !== 'OK' || !data.predictions) return []
 
-      return data.predictions
-        .slice(0, 6)
-        .map((prediction) => ({
+      const predictions = data.predictions.slice(0, 8)
+      const outs: PlaceOut[] = []
+      for (const prediction of predictions) {
+        const detail = await this.googlePlaceDetail(prediction.place_id)
+        outs.push({
           placeId: prediction.place_id,
           description: prediction.description,
           main: prediction.structured_formatting?.main_text ?? prediction.description,
           secondary: prediction.structured_formatting?.secondary_text ?? '',
-        }))
+          latitude: detail?.latitude,
+          longitude: detail?.longitude,
+        })
+      }
+      return outs
     } catch {
       return []
     }
+  }
+
+  private async googlePlaceDetail(placeId: string) {
+    const key = process.env.GOOGLE_MAPS_API_KEY
+    if (!key || key.trim().length < 20) return undefined
+    try {
+      const url = new URL('https://maps.googleapis.com/maps/api/place/details/json')
+      url.searchParams.set('place_id', placeId)
+      url.searchParams.set('fields', 'geometry/location')
+      url.searchParams.set('key', key)
+      const response = await fetch(url)
+      if (!response.ok) return undefined
+      const data = (await response.json()) as {
+        status?: string
+        result?: { geometry?: { location?: { lat: number; lng: number } } }
+      }
+      if (data.status !== 'OK' || !data.result?.geometry?.location) return undefined
+      return {
+        latitude: data.result.geometry.location.lat,
+        longitude: data.result.geometry.location.lng,
+      }
+    } catch {
+      return undefined
+    }
+  }
+
+  @Get('detail')
+  @ApiOperation({ summary: 'Detalle de un lugar por placeId (Google Places o catálogo local)' })
+  async detail(@Query('place_id') placeId: string) {
+    if (!placeId) return {}
+    if (placeId.startsWith('mg-')) {
+      const name = placeId.slice(3).replaceAll('-', ' ')
+      const match = MANAGUA_PLACES.find((place) => place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === placeId.slice(3))
+      if (match) return { latitude: match.latitude, longitude: match.longitude, name }
+    }
+    const detail = await this.googlePlaceDetail(placeId)
+    return detail ?? {}
   }
 }
