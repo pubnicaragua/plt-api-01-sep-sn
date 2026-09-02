@@ -18,7 +18,7 @@ export class TripsController {
 
   @Get()
   @ApiOperation({ summary: 'Listado de viajes y solicitudes' })
-  list(@Query('status') status?: TripStatus) { return this.store.listTrips(status) }
+  list(@Query('status') status?: TripStatus, @Query('driver') driver?: string) { return this.store.listTrips(status, driver) }
 
   @Post()
   @ApiOperation({ summary: 'Crear una solicitud de viaje' })

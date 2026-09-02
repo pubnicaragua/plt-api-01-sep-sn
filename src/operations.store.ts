@@ -79,6 +79,7 @@ export class OperationsStore implements OnModuleDestroy {
     this.migrateClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM clients').get() as { count: number }).count) === 0) this.seedClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM drivers').get() as { count: number }).count) === 0) this.seedDrivers()
+    else this.ensureSeedDrivers()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM incidents').get() as { count: number }).count) === 0) this.seedIncidents()
     this.clients = this.loadClients()
     this.drivers = this.loadDrivers()
@@ -95,6 +96,7 @@ export class OperationsStore implements OnModuleDestroy {
     ['service_type', 'TEXT NOT NULL DEFAULT \'Urbano\''],
     ['contact_name', 'TEXT NOT NULL DEFAULT \'\''],
     ['contact_phone', 'TEXT NOT NULL DEFAULT \'\''],
+    ['pickup_time', 'TEXT NOT NULL DEFAULT \'\''],
   ]
 
   private migrateTrips() {
@@ -117,6 +119,11 @@ export class OperationsStore implements OnModuleDestroy {
     { id: '#4782', client: 'Café Las Palmas', driver: 'Sin asignar', origin: 'Linda Vista', destination: 'Zumen', date: freshDate(0), packages: 4, status: 'Pendiente', originLat: 12.127, originLng: -86.288, destinationLat: 12.096, destinationLng: -86.262, distanceKm: 10.6, estimatedCostCs: 170.1, serviceType: 'Express' },
     { id: '#4781', client: 'Ferretería El Martillo', driver: 'Sin asignar', origin: 'Los Laureles', destination: 'Ciudad Sandino', date: freshDate(0), packages: 6, status: 'Pendiente', originLat: 12.142, originLng: -86.29, destinationLat: 12.152, destinationLng: -86.343, distanceKm: 13.2, estimatedCostCs: 192.2, serviceType: 'Programado' },
     { id: '#4780', client: 'Clínica San Miguel', driver: 'Pedro Ruiz', origin: 'Plaza España', destination: 'Las Brisas', date: freshDate(1), packages: 3, status: 'Completado', originLat: 12.141, originLng: -86.266, destinationLat: 12.111, destinationLng: -86.257, distanceKm: 4.2, estimatedCostCs: 115.7, serviceType: 'Urbano' },
+    { id: '#VJ-2847', client: 'Grupo Emuná', driver: 'Carlos Díaz', origin: 'Incoex, Oficinas', destination: 'km 15 Carretera Veracruz', date: freshDate(0), packages: 4, status: 'Asignado', originLat: 12.122, originLng: -86.249, destinationLat: 12.089, destinationLng: -86.203, distanceKm: 12.4, estimatedCostCs: 162.5, serviceType: 'Urbano', pickupTime: '09:30 AM', contactName: 'María González López', contactPhone: '8888-7654', recipientName: 'María González López', recipientPhone: '8888-7654', description: 'Manejar con cuidado. Contiene material frágil.', fragile: true },
+    { id: '#VJ-2848', client: 'Distribuidora El Corral', driver: 'Carlos Díaz', origin: 'Incoex, Oficinas', destination: 'La Loma managua', date: freshDate(0), packages: 2, status: 'Asignado', originLat: 12.126, originLng: -86.244, destinationLat: 12.117, destinationLng: -86.212, distanceKm: 7.9, estimatedCostCs: 143.6, serviceType: 'Urbano', pickupTime: '11:00 AM', contactName: 'Saúl López', contactPhone: '8765-4321' },
+    { id: '#VJ-2849', client: 'Alimentos NicaFresh', driver: 'Carlos Díaz', origin: 'Incoex, Oficinas', destination: 'Aeropuerto, managua', date: freshDate(0), packages: 3, status: 'Asignado', originLat: 12.131, originLng: -86.228, destinationLat: 12.140, destinationLng: -86.180, distanceKm: 10.8, estimatedCostCs: 156.3, serviceType: 'Express', pickupTime: '02:30 PM', contactName: 'María García López', contactPhone: '8712-9034' },
+    { id: '#VJ-2846', client: 'Electrónica Plus', driver: 'Carlos Díaz', origin: 'Incoex, Oficinas', destination: 'Colonia Centroamérica', date: freshDate(1), packages: 2, status: 'Completado', originLat: 12.118, originLng: -86.256, destinationLat: 12.121, destinationLng: -86.240, distanceKm: 5.2, estimatedCostCs: 128.9, serviceType: 'Urbano', pickupTime: '08:15 AM', contactName: 'Mario Castillo', contactPhone: '8541-0892' },
+    { id: '#VJ-2845', client: 'Farmacias Kielsa', driver: 'Carlos Díaz', origin: 'Villa Fontana', destination: 'Plaza España', date: freshDate(2), packages: 1, status: 'Completado', originLat: 12.118, originLng: -86.245, destinationLat: 12.141, destinationLng: -86.266, distanceKm: 3.1, estimatedCostCs: 112.4, serviceType: 'Urbano', pickupTime: '10:05 AM', contactName: 'Ana Osorio', contactPhone: '8622-1147' },
   ]
 
   private drivers: Driver[] = [
@@ -125,7 +132,8 @@ export class OperationsStore implements OnModuleDestroy {
     { id: 'drv-003', name: 'Ana López', phone: '8345-6789', vehicle: 'Chevrolet Express', plate: 'M 345-678', status: 'En entrega', route: 'Bello Horizonte → San Judas', latitude: 12.135, longitude: -86.279 },
     { id: 'drv-004', name: 'Pedro Ruiz', phone: '8456-7890', vehicle: 'Mercedes Sprinter', plate: 'M 456-789', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.121, longitude: -86.244 },
     { id: 'drv-005', name: 'Miguel Torres', phone: '8567-8901', vehicle: 'Renault Kangoo', plate: 'M 567-890', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.102, longitude: -86.268 },
-    { id: 'drv-006', name: 'Carlos Díaz', phone: '8678-9012', vehicle: 'VW Caddy', plate: 'M 678-901', status: 'Fuera de servicio', route: 'Mantenimiento programado', latitude: 12.139, longitude: -86.231 },
+    { id: 'drv-006', name: 'Carlos Díaz', phone: '8678-9012', vehicle: 'VW Caddy', plate: 'M 678-901', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.139, longitude: -86.231 },
+    { id: 'drv-007', name: 'José Martínez', phone: '8912-3456', vehicle: 'Toyota Hiace', plate: 'M 890-123', status: 'Disponible', route: 'Sin viaje activo', latitude: 12.116, longitude: -86.239 },
   ]
 
   private clients: Client[] = [
@@ -201,6 +209,14 @@ export class OperationsStore implements OnModuleDestroy {
     for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
   }
 
+  private ensureSeedDrivers() {
+    const exists = this.db.prepare('SELECT 1 AS present FROM drivers WHERE id = ?')
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, vehicle, plate, status, route, latitude, longitude) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const driver of this.drivers) {
+      if (!exists.get(driver.id)) insert.run(driver.id, driver.name, driver.phone, driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude)
+    }
+  }
+
   private loadDrivers() {
     const rows = this.db.prepare('SELECT * FROM drivers ORDER BY name').all() as unknown as Array<Record<string, unknown>>
     return rows.map((row) => ({
@@ -217,13 +233,13 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedTrips() {
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const trip of [...this.seedData].reverse()) this.writeSeedTrip(insert, trip)
   }
 
   private ensureSeedTrips() {
     const exists = this.db.prepare('SELECT 1 AS present FROM trips WHERE id = ?')
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const refreshDate = this.db.prepare('UPDATE trips SET trip_date = ? WHERE id = ?')
     for (const trip of [...this.seedData].reverse()) {
       if (exists.get(trip.id)) {
@@ -236,7 +252,7 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private writeSeedTrip(statement: ReturnType<DatabaseSync['prepare']>, trip: Trip) {
-    statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '')
+    statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '')
   }
 
   private loadTrips() {
@@ -263,6 +279,7 @@ export class OperationsStore implements OnModuleDestroy {
       serviceType: (row.service_type?.toString() ?? 'Urbano') as Trip['serviceType'],
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
+      pickupTime: row.pickup_time?.toString(),
     }))
   }
 
@@ -271,8 +288,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -297,7 +314,12 @@ export class OperationsStore implements OnModuleDestroy {
     }
   }
 
-  listTrips(status?: TripStatus) { return status ? this.trips.filter((trip) => trip.status === status) : this.trips }
+  listTrips(status?: TripStatus, driver?: string) {
+    const driverFiltered = driver && driver !== 'undefined' && driver !== ''
+      ? this.trips.filter((trip) => trip.driver.toLowerCase() === driver.toLowerCase())
+      : this.trips
+    return status ? driverFiltered.filter((trip) => trip.status === status) : driverFiltered
+  }
   listDrivers() { return this.drivers }
   listClients() { return this.clients }
   listIncidents() { return this.incidents }
@@ -508,16 +530,24 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   login(input: { email: string; role: 'company' | 'driver' | 'admin' }) {
-    const driver = input.role === 'driver' ? this.drivers.find((candidate) => candidate.id === 'drv-006') : undefined
+    const normalized = input.email.trim().toLowerCase()
+    const demoDrivers: Record<string, string> = {
+      'carlos.diaz@incoex.com.ni': 'drv-006',
+      'jose.martinez@incoex.com.ni': 'drv-007',
+      'conductor@incoex.com.ni': 'drv-006',
+    }
+    const driverId = input.role === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
+    const driver = driverId ? this.drivers.find((candidate) => candidate.id === driverId) : undefined
     return {
       accessToken: 'prototype-token-replace-before-production',
       user: {
-        id: input.role === 'driver' ? 'drv-006' : input.role === 'company' ? 'cli-001' : 'admin-001',
+        id: driver?.id ?? (input.role === 'company' ? 'cli-001' : 'admin-001'),
         email: input.email,
         role: input.role,
-        displayName: input.role === 'driver' ? 'Carlos Díaz' : input.role === 'company' ? 'Mario Martínez' : 'Mario Martínez',
+        displayName: driver?.name ?? (input.role === 'driver' ? 'Carlos Díaz' : input.role === 'company' ? 'Mario Martínez' : 'Mario Martínez'),
         vehicle: driver?.vehicle,
         plate: driver?.plate,
+        phone: driver?.phone,
       },
     }
   }

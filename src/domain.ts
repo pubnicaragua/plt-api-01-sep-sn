@@ -27,6 +27,17 @@ export interface Trip {
   serviceType?: 'Urbano' | 'Express' | 'Programado'
   contactName?: string
   contactPhone?: string
+  pickupTime?: string
+}
+
+export interface AppNotification {
+  id: string
+  driverId: string
+  title: string
+  body: string
+  tripId: string
+  time: string
+  read: boolean
 }
 
 export interface Driver {
