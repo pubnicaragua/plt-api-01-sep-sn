@@ -55,6 +55,7 @@ function collectOnDay(day: number) {
 export class OperationsStore implements OnModuleDestroy {
   private readonly db: DatabaseSync
   private trips: Trip[]
+  private readonly sessions = new Map<string, { userId: string; email: string; role: string; createdAt: string }>()
 
   constructor(
     private readonly settings: SettingsStore,
@@ -171,6 +172,8 @@ export class OperationsStore implements OnModuleDestroy {
     ['scheduled_time', 'TEXT NOT NULL DEFAULT \'\''],
     ['is_scheduled', 'INTEGER NOT NULL DEFAULT 0'],
     ['cost_cs', 'REAL NOT NULL DEFAULT 0'],
+    ['weight', 'REAL'],
+    ['weight_unit', 'TEXT NOT NULL DEFAULT \'kg\''],
   ]
 
   private migrateTrips() {
@@ -494,8 +497,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -531,21 +534,32 @@ export class OperationsStore implements OnModuleDestroy {
   listIncidents() { return this.incidents }
   listHistory() { return this.history }
 
-  checkSession(token: string) {
-    const row = this.db.prepare('SELECT id, name, role, session_state FROM app_users WHERE id = ?').get(token) as Record<string, unknown> | undefined
+checkSession(token: string) {
+    const session = this.sessions.get(token)
+    if (session) {
+      const row = this.db.prepare('SELECT id, name, role, session_state FROM app_users WHERE id = ?').get(session.userId) as unknown as Record<string, unknown> | undefined
+      if (row && String(row.session_state ?? 'Activa') !== 'Activa') {
+        this.sessions.delete(token)
+        return { valid: false, reason: 'revoked' }
+      }
+      return { valid: true, name: String(row?.name ?? session.email), role: String(row?.role ?? session.role), sessionState: row ? String(row.session_state ?? 'Activa') : 'Activa' }
+    }
+    const row = this.db.prepare('SELECT id, name, role, session_state FROM app_users WHERE id = ?').get(token) as unknown as Record<string, unknown> | undefined
     if (!row) return { valid: false, reason: 'Sesión no encontrada' }
     const state = String(row.session_state ?? 'Activa')
-    return { valid: state === 'Activa', name: String(row.name ?? ''), role: String(row.role ?? ''), sessionState: state }
+    if (state !== 'Activa') return { valid: false, reason: 'revoked' }
+    this.sessions.set(token, { userId: String(row.id), email: String(row.email ?? ''), role: String(row.role ?? ''), createdAt: new Date().toISOString() })
+    return { valid: true, name: String(row.name ?? ''), role: String(row.role ?? ''), sessionState: state }
   }
 
-  getClientProfile(id: string) {
-    const client = this.clients.find((candidate) => candidate.id === id)
+getClientProfile(id: string) {
+    const client = this.clients.find((candidate) => candidate.id === id || candidate.name.trim().toLowerCase() === id.trim().toLowerCase())
     if (!client) throw new NotFoundException('Cliente no encontrado')
     const trips = this.trips.filter((trip) => trip.client.trim().toLowerCase() === client.name.trim().toLowerCase())
     const completed = trips.filter((trip) => ['Completado', 'Entregado'].includes(trip.status))
     const totalCs = Number(completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0).toFixed(2))
     const pendingPayment = trips.filter((trip) => (trip.paymentStatus ?? 'Sin pagar') !== 'Pagado').reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)
-    const cortes = (this.db.prepare('SELECT id, period_start, period_end, period_label, total_cs, previous_debt_cs, grand_total_cs, status, paid_at, method FROM cortes WHERE lower(client) = lower(?) ORDER BY period_end DESC LIMIT 12').all(client.name) as unknown as Array<Record<string, unknown>>).map((row) => ({
+    const cortes = (this.db.prepare('SELECT id, period_start, period_end, period_label, total_cs, previous_debt_cs, grand_total_cs, status, paid_at, method FROM cortes WHERE client = ? ORDER BY rowid DESC').all(client.name) as unknown as Array<Record<string, unknown>>).map((row) => ({
       id: String(row.id),
       periodStart: String(row.period_start),
       periodEnd: String(row.period_end),
@@ -557,6 +571,21 @@ export class OperationsStore implements OnModuleDestroy {
       paidAt: row.paid_at ? new Date(Number(row.paid_at)).toISOString() : undefined,
       method: String(row.method ?? ''),
     }))
+    const byStatus: Record<string, number> = {}
+    const byService: Record<string, { count: number; total: number }> = {}
+    for (const trip of trips) {
+      byStatus[trip.status] = (byStatus[trip.status] ?? 0) + 1
+      const service = trip.serviceType ?? 'Urbano'
+      byService[service] = {
+        count: (byService[service]?.count ?? 0) + 1,
+        total: (byService[service]?.total ?? 0) + (trip.estimatedCostCs ?? 0),
+      }
+    }
+    const unpaidTrips = trips
+      .filter((trip) => (trip.paymentStatus ?? 'Sin pagar') !== 'Pagado')
+      .slice()
+      .sort((a, b) => (a.date < b.date ? 1 : -1))
+      .map((trip) => ({ id: trip.id, date: trip.date, origin: trip.origin, destination: trip.destination, costCs: trip.estimatedCostCs ?? 0, paymentStatus: trip.paymentStatus ?? 'Sin pagar', dueDate: trip.dueDate ?? '' }))
     return {
       client,
       trips,
@@ -565,6 +594,33 @@ export class OperationsStore implements OnModuleDestroy {
       totalCs,
       pendingCs: Number(pendingPayment.toFixed(2)),
       cortes,
+      stats: {
+        totalTrips: trips.length,
+        activeTrips: (byStatus['Asignado'] ?? 0) + (byStatus['En camino'] ?? 0) + (byStatus['En entrega'] ?? 0),
+        completedTrips: completed.length,
+        cancelledTrips: (byStatus['Cancelado'] ?? 0) + (byStatus['Anulado'] ?? 0),
+        pendingBalance: Number(pendingPayment.toFixed(2)),
+        byStatus,
+      },
+      billing: {
+        invoiced: totalCs,
+        paid: Number(Math.max(0, totalCs - pendingPayment).toFixed(2)),
+        pending: Number(pendingPayment.toFixed(2)),
+        unpaidTrips,
+      },
+      services: Object.entries(byService).map(([type, data]) => ({ type, count: data.count, total: Number(data.total.toFixed(2)) })),
+      tripsSummary: trips.slice().sort((a, b) => (a.date < b.date ? 1 : -1)).slice(0, 20).map((trip) => ({
+        id: trip.id,
+        date: trip.date,
+        origin: trip.origin,
+        destination: trip.destination,
+        driver: trip.driver,
+        packages: trip.packages,
+        status: trip.status,
+        serviceType: trip.serviceType ?? 'Urbano',
+        costCs: trip.estimatedCostCs ?? 0,
+        paymentStatus: trip.paymentStatus ?? 'Sin pagar',
+})),
     }
   }
 
@@ -913,6 +969,8 @@ export class OperationsStore implements OnModuleDestroy {
     scheduledDate?: string
     scheduledTime?: string
     isScheduled?: boolean
+    weight?: number
+    weightUnit?: 'kg' | 'lb'
   }) {
     const nextNumber = 4792 + this.trips.length
     const distanceKm = Math.max(0, input.distanceKm ?? 0)
@@ -974,6 +1032,8 @@ export class OperationsStore implements OnModuleDestroy {
       scheduledDate: input.scheduledDate,
       scheduledTime: input.scheduledTime,
       isScheduled: input.isScheduled ?? input.serviceType === 'Programado',
+      weight: input.weight,
+      weightUnit: input.weightUnit ?? 'kg',
     }
     this.trips.unshift(trip)
     const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
@@ -1032,10 +1092,17 @@ export class OperationsStore implements OnModuleDestroy {
     }
     const driverId = input.role === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
     const driver = driverId ? this.drivers.find((candidate) => candidate.id === driverId) : undefined
+    const panelUser = this.db.prepare('SELECT id FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string } | undefined
+    const userId = panelUser?.id ?? driver?.id ?? (input.role === 'company' ? 'cli-001' : 'admin-001')
+    const revoked = this.db.prepare('SELECT session_state FROM app_users WHERE id = ?').get(userId)
+    if (revoked && String((revoked as { session_state: string }).session_state) === 'Cerrada') {
+      this.db.prepare('UPDATE app_users SET session_state = ? WHERE id = ?').run('Activa', userId)
+    }
+    const accessToken = this.issueSession(userId, normalized, input.role)
     return {
-      accessToken: 'prototype-token-replace-before-production',
+      accessToken,
       user: {
-        id: driver?.id ?? (input.role === 'company' ? 'cli-001' : 'admin-001'),
+        id: userId,
         email: input.email,
         role: input.role,
         displayName: driver?.name ?? (input.role === 'driver' ? 'Carlos Díaz' : input.role === 'company' ? 'Mario Martínez' : 'Mario Martínez'),
@@ -1044,6 +1111,22 @@ export class OperationsStore implements OnModuleDestroy {
         phone: driver?.phone,
       },
     }
+  }
+
+  private issueSession(userId: string, email: string, role: string) {
+    const token = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`
+    this.sessions.set(token, { userId, email, role, createdAt: new Date().toISOString() })
+    return token
+  }
+
+  revokeSession(userId: string) {
+    const row = this.db.prepare('SELECT id FROM app_users WHERE id = ?').get(userId)
+    if (!row) throw new NotFoundException('Usuario no encontrado')
+    this.db.prepare('UPDATE app_users SET session_state = ? WHERE id = ?').run('Cerrada', userId)
+    for (const [token, session] of this.sessions) {
+      if (session.userId === userId) this.sessions.delete(token)
+    }
+    return { id: userId, sessionState: 'Cerrada' }
   }
 
   register(input: { name: string; companyName: string; email: string; role: 'company' | 'driver' }) {
@@ -1178,14 +1261,15 @@ export class OperationsStore implements OnModuleDestroy {
       rows.push('ID,Viaje,Conductor,Cliente,Tipo,Prioridad,Estado')
       for (const incident of this.incidents) rows.push([incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status].map(escape).join(','))
     } else if (collection === 'packages') {
-      rows.push('Guia,Viaje,Cliente,PesoKg,Dimensiones,Estado')
+      rows.push('Guia,Viaje,Cliente,Peso,Unidad,Dimensiones,Estado')
       let index = 1
       for (const trip of this.trips) {
         for (let packageIndex = 1; packageIndex <= Math.min(trip.packages, 3); packageIndex += 1) {
           const id = `PKG-${trip.id.replace('#', '')}-${packageIndex}`
-          const weightKg = (1 + ((trip.packages + packageIndex) % 24)).toFixed(1)
+          const weightKg = trip.weight ?? (1 + ((trip.packages + packageIndex) % 24))
+          const weightLb = Number((weightKg * 2.20462).toFixed(1))
           const dimensions = `${30 + packageIndex * 5}×${20 + packageIndex * 4}×${15 + packageIndex * 3} cm`
-          rows.push([id, trip.id, trip.client, weightKg, dimensions, trip.status].map(escape).join(','))
+          rows.push([id, trip.id, trip.client, trip.weightUnit === 'lb' ? weightLb : weightKg, trip.weightUnit ?? 'kg', dimensions, trip.status].map(escape).join(','))
           index += 1
         }
       }
