@@ -6,7 +6,7 @@ import { diskStorage } from 'multer'
 import { mkdirSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { SettingsStore } from './settings.store'
-import { VehiclesStore, type FuelType, type Vehicle, type VehicleStatus } from './vehicles.store'
+import { VehiclesStore, type FuelType, type Vehicle, type VehicleFunction, type VehicleStatus } from './vehicles.store'
 
 class CreateVehicleDto {
   @IsString()
@@ -53,6 +53,55 @@ class CreateVehicleDto {
   @IsOptional()
   @IsBoolean()
   external?: boolean
+
+  @IsOptional()
+  @IsIn(['taxi', 'delivery', 'mixto', ''])
+  vehicleFunction?: VehicleFunction
+
+  @IsOptional()
+  @IsString()
+  logistics?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  minTripsMonth?: number
+
+  @IsOptional()
+  @IsBoolean()
+  financed?: boolean
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  downPaymentCs?: number
+
+  @IsOptional()
+  @IsString()
+  leaseStart?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  leaseTermMonths?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  leaseMonthlyPaymentCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  residualValueCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(90)
+  depreciationPct?: number
 }
 
 class UpdateVehicleDto {
@@ -78,6 +127,55 @@ class UpdateVehicleDto {
   @IsOptional()
   @IsBoolean()
   external?: boolean
+
+  @IsOptional()
+  @IsIn(['taxi', 'delivery', 'mixto', ''])
+  vehicleFunction?: VehicleFunction
+
+  @IsOptional()
+  @IsString()
+  logistics?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(5000)
+  minTripsMonth?: number
+
+  @IsOptional()
+  @IsBoolean()
+  financed?: boolean
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  downPaymentCs?: number
+
+  @IsOptional()
+  @IsString()
+  leaseStart?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(240)
+  leaseTermMonths?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  leaseMonthlyPaymentCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  residualValueCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(90)
+  depreciationPct?: number
 }
 
 class VehicleStatusDto {

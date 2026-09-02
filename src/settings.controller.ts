@@ -44,6 +44,16 @@ class UpdateSettingsDto implements SettingsPatch {
   vehicleRates?: Record<'Moto' | 'Vehículo' | 'Camión', VehicleRateDto>
 
   @IsOptional()
+  @IsNumber()
+  @Min(0)
+  prioritySurchargePct?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  scheduledSurchargePct?: number
+
+  @IsOptional()
   @IsString()
   companyName?: string
 

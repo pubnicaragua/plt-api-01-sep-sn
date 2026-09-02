@@ -1,7 +1,38 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsBoolean, IsEmail, IsNotEmpty, IsOptional, IsString } from 'class-validator'
+import { IsBoolean, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator'
 import { OperationsStore } from './operations.store'
+
+class DriverLocationDto {
+  @IsString()
+  @IsNotEmpty()
+  driver!: string
+
+  @IsNumber()
+  @Min(-90)
+  @Max(90)
+  latitude!: number
+
+  @IsNumber()
+  @Min(-180)
+  @Max(180)
+  longitude!: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  accuracy?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(300)
+  speedKmh?: number
+
+  @IsOptional()
+  @IsString()
+  source?: string
+}
 
 class CreateDriverDto {
   @IsString()
@@ -64,6 +95,13 @@ export class DriversController {
   @ApiOperation({ summary: 'Actualizar vehículo y marca de proveedor tercerizado de un conductor' })
   update(@Param('id') id: string, @Body() body: UpdateDriverDto) {
     return this.store.updateDriver(id, body)
+  }
+
+  @Post('location')
+  @ApiOperation({ summary: 'Enviar la posición en tiempo real del conductor (la app móvil la reporta cada ~20 s)' })
+  location(@Body() body: DriverLocationDto) {
+    this.store.updateDriverLocation(body.driver, body.latitude, body.longitude, body.accuracy ?? 0, body.speedKmh ?? 0, body.source ?? 'app')
+    return { ok: true, driver: body.driver, updatedAt: new Date().toISOString() }
   }
 
   @Delete(':id')

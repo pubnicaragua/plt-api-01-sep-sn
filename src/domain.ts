@@ -24,12 +24,17 @@ export interface Trip {
   destinationLng?: number
   distanceKm?: number
   estimatedCostCs?: number
+  costCs?: number
+  profitCs?: number
   serviceType?: 'Urbano' | 'Express' | 'Programado'
   contactName?: string
   contactPhone?: string
   pickupTime?: string
   originRefs?: string
   destinationRefs?: string
+  scheduledDate?: string
+  scheduledTime?: string
+  isScheduled?: boolean
   paymentMethod?: 'Efectivo' | 'Transferencia' | 'Financiamiento' | 'Contra entrega' | ''
   paymentRef?: string
   paymentAmount?: number
@@ -119,4 +124,29 @@ export interface ReportSummary {
   topClients: Array<{ name: string; trips: number }>
   topVehicles?: Array<{ plate: string; model: string; trips: number; km: number; incomeCs: number }>
   driverVehicle?: Array<{ name: string; vehicle: string; trips: number; incomeCs: number }>
+  fleetReport?: Array<{
+    plate: string
+    model: string
+    vehicleFunction: string
+    logistics: string
+    external: boolean
+    financed: boolean
+    leaseMonthlyPaymentCs: number
+    monthsRemaining: number
+    remainingDebtCs: number
+    monthlyDepreciationCs: number
+    monthlyCostCs: number
+    minTripsMonth: number
+    tripsMonth: number
+    kmMonth: number
+    incomeMonthCs: number
+    fuelEstimateCs: number
+    marginCs: number
+    breakEvenTrips: number
+  }>
+  profitSummary?: {
+    totalProfitCs: number
+    profitableTrips: number
+    lossTrips: number
+  }
 }

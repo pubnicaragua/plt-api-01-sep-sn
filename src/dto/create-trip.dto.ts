@@ -81,4 +81,16 @@ export class CreateTripDto {
   @IsOptional()
   @IsString()
   destinationRefs?: string
+
+  @IsOptional()
+  @IsString()
+  scheduledDate?: string
+
+  @IsOptional()
+  @IsString()
+  scheduledTime?: string
+
+  @IsOptional()
+  @IsBoolean()
+  isScheduled?: boolean
 }

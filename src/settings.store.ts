@@ -19,6 +19,8 @@ export interface AppSettings {
     Vehículo: VehicleRate
     Camión: VehicleRate
   }
+  prioritySurchargePct: number
+  scheduledSurchargePct: number
   companyName: string
   companyPhone: string
   companyEmail: string
@@ -45,6 +47,8 @@ const DEFAULTS: Omit<AppSettings, 'updatedAt'> = {
     Vehículo: { baseFeeCs: 80, farePerKmCs: 8.5 },
     Camión: { baseFeeCs: 130, farePerKmCs: 13.5 },
   },
+  prioritySurchargePct: 25,
+  scheduledSurchargePct: 0,
   companyName: 'INCOEX Logistics',
   companyPhone: '+505 8888-0000',
   companyEmail: 'contacto@incoexlogistics.com',
@@ -80,7 +84,7 @@ export class SettingsStore implements OnModuleDestroy {
 
   get(): AppSettings {
     const rows = this.db.prepare('SELECT key, value, updated_at FROM app_settings').all() as unknown as SettingsRow[]
-    const numericKeys = ['dollarRate', 'fuelPriceGasolineCs', 'fuelPriceDieselCs', 'baseFeeCs', 'farePerKmCs']
+    const numericKeys = ['dollarRate', 'fuelPriceGasolineCs', 'fuelPriceDieselCs', 'baseFeeCs', 'farePerKmCs', 'prioritySurchargePct', 'scheduledSurchargePct']
     const values: Record<string, string | number> = {}
     for (const row of rows) values[row.key] = numericKeys.includes(row.key) ? Number(row.value) : row.value
     const updatedAt = rows[0]?.updated_at ?? new Date().toISOString()

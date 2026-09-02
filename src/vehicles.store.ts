@@ -5,6 +5,25 @@ import { DatabaseSync } from 'node:sqlite'
 
 export type VehicleStatus = 'Disponible' | 'En servicio' | 'Mantenimiento' | 'Fuera de servicio'
 export type FuelType = 'Gasolina' | 'Diésel' | 'Eléctrico' | 'Híbrido'
+export type VehicleFunction = 'taxi' | 'delivery' | 'mixto' | ''
+
+export interface VehicleFinancing {
+  financed: boolean
+  downPaymentCs: number
+  leaseStart: string
+  leaseTermMonths: number
+  leaseMonthlyPaymentCs: number
+  residualValueCs: number
+  depreciationPct: number
+  monthsElapsed: number
+  monthsRemaining: number
+  totalPaidCs: number
+  remainingDebtCs: number
+  monthlyDepreciationCs: number
+  annualDepreciationCs: number
+  monthlyCostCs: number
+  financingLabel: string
+}
 
 export interface Vehicle {
   id: string
@@ -24,6 +43,10 @@ export interface Vehicle {
   odometerKm: number
   imageUrl: string
   external?: boolean
+  vehicleFunction: VehicleFunction
+  logistics: string
+  minTripsMonth: number
+  financing: VehicleFinancing
 }
 
 export interface MaintenanceRecord {
@@ -53,6 +76,16 @@ interface VehicleRow {
   odometer_km: number
   image_url: string
   external: number
+  vehicle_function: string
+  logistics: string
+  min_trips_month: number
+  financed: number
+  down_payment_cs: number
+  lease_start: string
+  lease_term_months: number
+  lease_monthly_payment_cs: number
+  residual_value_cs: number
+  depreciation_pct: number
 }
 
 interface MaintenanceRow {
@@ -64,7 +97,7 @@ interface MaintenanceRow {
   cost: number
 }
 
-const VEHICLE_SEED: Array<Omit<Vehicle, 'status'> & { status: VehicleStatus }> = [
+const VEHICLE_SEED: Array<Omit<Vehicle, 'status' | 'vehicleFunction' | 'logistics' | 'minTripsMonth' | 'financing'> & { status: VehicleStatus }> = [
   { id: 'vh-001', plate: 'M 123-456', model: 'Ford Transit 2023', type: 'Panel', capacityKg: 1200, year: 2023, status: 'En servicio', driver: 'Juan Pérez', lastMaintenance: '10 Ago 2026', nextMaintenance: '10 Sep 2026', totalTrips: 152, fuelType: 'Diésel', consumptionLPerKm: 0.12, priceCs: 1850000, odometerKm: 48250, imageUrl: '' },
   { id: 'vh-002', plate: 'M 234-567', model: 'Nissan NV200 2022', type: 'Panel', capacityKg: 750, year: 2022, status: 'En servicio', driver: 'Roberto Sánchez', lastMaintenance: '18 Ago 2026', nextMaintenance: '18 Sep 2026', totalTrips: 138, fuelType: 'Gasolina', consumptionLPerKm: 0.09, priceCs: 1350000, odometerKm: 61300, imageUrl: '' },
   { id: 'vh-003', plate: 'M 345-678', model: 'Chevrolet Express 2021', type: 'Van', capacityKg: 900, year: 2021, status: 'En servicio', driver: 'Ana López', lastMaintenance: '22 Ago 2026', nextMaintenance: '22 Sep 2026', totalTrips: 141, fuelType: 'Gasolina', consumptionLPerKm: 0.14, priceCs: 1590000, odometerKm: 73810, imageUrl: '' },
@@ -90,7 +123,41 @@ const VEHICLE_COLUMNS = [
   'odometer_km INTEGER NOT NULL DEFAULT 0',
   'image_url TEXT NOT NULL DEFAULT \'\'',
   'external INTEGER NOT NULL DEFAULT 0',
+  'vehicle_function TEXT NOT NULL DEFAULT \'\'',
+  'logistics TEXT NOT NULL DEFAULT \'\'',
+  'min_trips_month INTEGER NOT NULL DEFAULT 0',
+  'financed INTEGER NOT NULL DEFAULT 0',
+  'down_payment_cs REAL NOT NULL DEFAULT 0',
+  'lease_start TEXT NOT NULL DEFAULT \'\'',
+  'lease_term_months INTEGER NOT NULL DEFAULT 0',
+  'lease_monthly_payment_cs REAL NOT NULL DEFAULT 0',
+  'residual_value_cs REAL NOT NULL DEFAULT 0',
+  'depreciation_pct REAL NOT NULL DEFAULT 20',
 ]
+
+interface SeedFinance {
+  financed?: boolean
+  downPaymentCs?: number
+  leaseStartMonthsAgo?: number
+  leaseTermMonths?: number
+  leaseMonthlyPaymentCs?: number
+  residualValueCs?: number
+  depreciationPct?: number
+  vehicleFunction: VehicleFunction
+  logistics: string
+  minTripsMonth: number
+}
+
+const VEHICLE_FINANCE_SEED: Record<string, SeedFinance> = {
+  'M 123-456': { financed: true, downPaymentCs: 555000, leaseStartMonthsAgo: 26, leaseTermMonths: 60, leaseMonthlyPaymentCs: 42000, residualValueCs: 370000, depreciationPct: 16, vehicleFunction: 'taxi', logistics: 'Servicio ejecutivo a empresas (paquetería gerencial)', minTripsMonth: 90 },
+  'M 234-567': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: 'Entregas urbanas de farmacia y tiendas', minTripsMonth: 120 },
+  'M 345-678': { financed: true, downPaymentCs: 477000, leaseStartMonthsAgo: 40, leaseTermMonths: 48, leaseMonthlyPaymentCs: 28500, residualValueCs: 0, depreciationPct: 18, vehicleFunction: 'delivery', logistics: 'Reparto a tiendas y supermercados', minTripsMonth: 110 },
+  'M 456-789': { financed: true, downPaymentCs: 726000, leaseStartMonthsAgo: 8, leaseTermMonths: 60, leaseMonthlyPaymentCs: 39800, residualValueCs: 484000, depreciationPct: 15, vehicleFunction: 'taxi', logistics: 'Servicio ejecutivo y traslado de personal', minTripsMonth: 80 },
+  'M 567-890': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: '3P · Proveedor externo (coordinado, no financiado)', minTripsMonth: 100, },
+  'M 678-901': { financed: false, depreciationPct: 20, vehicleFunction: 'delivery', logistics: 'Entregas exprés y paquetería urbana', minTripsMonth: 100 },
+  'M 789-012': { financed: true, downPaymentCs: 1005000, leaseStartMonthsAgo: 14, leaseTermMonths: 72, leaseMonthlyPaymentCs: 46500, residualValueCs: 670000, depreciationPct: 14, vehicleFunction: 'delivery', logistics: '3P · Distribución mayorista (carga pesada)', minTripsMonth: 70 },
+  'M 890-123': { financed: true, downPaymentCs: 1155000, leaseStartMonthsAgo: 3, leaseTermMonths: 72, leaseMonthlyPaymentCs: 52800, residualValueCs: 770000, depreciationPct: 14, vehicleFunction: 'delivery', logistics: 'Distribución programada de carga pesada', minTripsMonth: 70 },
+}
 
 @Injectable()
 export class VehiclesStore implements OnModuleDestroy {
@@ -150,6 +217,14 @@ export class VehiclesStore implements OnModuleDestroy {
       this.db.prepare("UPDATE vehicles SET external = 1 WHERE plate IN ('M 567-890', 'M 789-012') AND external = 0").run()
       this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_external_v1', '1')").run()
     }
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('veh_finance_v1')) {
+      const apply = this.db.prepare('UPDATE vehicles SET vehicle_function = ?, logistics = ?, min_trips_month = ?, financed = ?, down_payment_cs = ?, lease_start = ?, lease_term_months = ?, lease_monthly_payment_cs = ?, residual_value_cs = ?, depreciation_pct = ? WHERE plate = ?')
+      for (const [plate, finance] of Object.entries(VEHICLE_FINANCE_SEED)) {
+        const leaseStart = finance.leaseStartMonthsAgo === undefined ? '' : isoDateMonthsAgo(finance.leaseStartMonthsAgo)
+        apply.run(finance.vehicleFunction, finance.logistics, finance.minTripsMonth, finance.financed ? 1 : 0, finance.downPaymentCs ?? 0, leaseStart, finance.leaseTermMonths ?? 0, finance.leaseMonthlyPaymentCs ?? 0, finance.residualValueCs ?? 0, finance.depreciationPct ?? 20, plate)
+      }
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('veh_finance_v1', '1')").run()
+    }
   }
 
   list() {
@@ -163,23 +238,33 @@ export class VehiclesStore implements OnModuleDestroy {
     return toVehicle(row)
   }
 
-  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean }) {
+  create(input: { plate: string; model: string; type: string; capacityKg: number; year: number; fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number }) {
     const duplicate = this.db.prepare('SELECT 1 AS present FROM vehicles WHERE plate = ?').get(input.plate)
     if (duplicate) throw new BadRequestException('Ya existe un vehículo con esa placa')
     const id = `vh-${String(Date.now()).slice(-6)}`
     const now = new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
-    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0)
+    this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, input.plate, input.model, input.type, input.capacityKg, input.year, 'Disponible', 'Sin asignar', now, now, 0, input.fuelType ?? 'Gasolina', input.consumptionLPerKm ?? 0.1, input.priceCs ?? 0, input.odometerKm ?? 0, '', input.external ? 1 : 0, input.vehicleFunction ?? '', input.logistics ?? '', input.minTripsMonth ?? 0, input.financed ? 1 : 0, input.downPaymentCs ?? 0, input.leaseStart ?? '', input.leaseTermMonths ?? 0, input.leaseMonthlyPaymentCs ?? 0, input.residualValueCs ?? 0, input.depreciationPct ?? 20)
     return this.get(id)
   }
 
-  update(id: string, input: { fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean }) {
+  update(id: string, input: { fuelType?: FuelType; consumptionLPerKm?: number; priceCs?: number; odometerKm?: number; external?: boolean; vehicleFunction?: VehicleFunction; logistics?: string; minTripsMonth?: number; financed?: boolean; downPaymentCs?: number; leaseStart?: string; leaseTermMonths?: number; leaseMonthlyPaymentCs?: number; residualValueCs?: number; depreciationPct?: number }) {
     this.get(id)
     if (input.fuelType !== undefined) this.db.prepare('UPDATE vehicles SET fuel_type = ? WHERE id = ?').run(input.fuelType, id)
     if (input.consumptionLPerKm !== undefined) this.db.prepare('UPDATE vehicles SET consumption_l_per_km = ? WHERE id = ?').run(input.consumptionLPerKm, id)
     if (input.priceCs !== undefined) this.db.prepare('UPDATE vehicles SET price_cs = ? WHERE id = ?').run(input.priceCs, id)
     if (input.odometerKm !== undefined) this.db.prepare('UPDATE vehicles SET odometer_km = ? WHERE id = ?').run(input.odometerKm, id)
     if (input.external !== undefined) this.db.prepare('UPDATE vehicles SET external = ? WHERE id = ?').run(input.external ? 1 : 0, id)
+    if (input.vehicleFunction !== undefined) this.db.prepare('UPDATE vehicles SET vehicle_function = ? WHERE id = ?').run(input.vehicleFunction, id)
+    if (input.logistics !== undefined) this.db.prepare('UPDATE vehicles SET logistics = ? WHERE id = ?').run(input.logistics, id)
+    if (input.minTripsMonth !== undefined) this.db.prepare('UPDATE vehicles SET min_trips_month = ? WHERE id = ?').run(Math.max(0, Math.round(input.minTripsMonth)), id)
+    if (input.financed !== undefined) this.db.prepare('UPDATE vehicles SET financed = ? WHERE id = ?').run(input.financed ? 1 : 0, id)
+    if (input.downPaymentCs !== undefined) this.db.prepare('UPDATE vehicles SET down_payment_cs = ? WHERE id = ?').run(input.downPaymentCs, id)
+    if (input.leaseStart !== undefined) this.db.prepare('UPDATE vehicles SET lease_start = ? WHERE id = ?').run(input.leaseStart, id)
+    if (input.leaseTermMonths !== undefined) this.db.prepare('UPDATE vehicles SET lease_term_months = ? WHERE id = ?').run(Math.max(0, Math.round(input.leaseTermMonths)), id)
+    if (input.leaseMonthlyPaymentCs !== undefined) this.db.prepare('UPDATE vehicles SET lease_monthly_payment_cs = ? WHERE id = ?').run(input.leaseMonthlyPaymentCs, id)
+    if (input.residualValueCs !== undefined) this.db.prepare('UPDATE vehicles SET residual_value_cs = ? WHERE id = ?').run(input.residualValueCs, id)
+    if (input.depreciationPct !== undefined) this.db.prepare('UPDATE vehicles SET depreciation_pct = ? WHERE id = ?').run(Math.max(0, Math.min(90, input.depreciationPct)), id)
     return this.get(id)
   }
 
@@ -240,14 +325,27 @@ export class VehiclesStore implements OnModuleDestroy {
   onModuleDestroy() { this.db.close() }
 
   private seed() {
-    const insertVehicle = this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const vehicle of VEHICLE_SEED) insertVehicle.run(vehicle.id, vehicle.plate, vehicle.model, vehicle.type, vehicle.capacityKg, vehicle.year, vehicle.status, vehicle.driver, vehicle.lastMaintenance, vehicle.nextMaintenance, vehicle.totalTrips, vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.imageUrl, vehicle.external ? 1 : 0)
+    const insertVehicle = this.db.prepare('INSERT INTO vehicles (id, plate, model, type, capacity_kg, year, status, driver, last_maintenance, next_maintenance, total_trips, fuel_type, consumption_l_per_km, price_cs, odometer_km, image_url, external, vehicle_function, logistics, min_trips_month, financed, down_payment_cs, lease_start, lease_term_months, lease_monthly_payment_cs, residual_value_cs, depreciation_pct) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const vehicle of VEHICLE_SEED) {
+      const finance = VEHICLE_FINANCE_SEED[vehicle.plate] ?? { financed: false, depreciationPct: 20, vehicleFunction: '', logistics: '', minTripsMonth: 0 }
+      const leaseStart = finance.leaseStartMonthsAgo === undefined ? '' : isoDateMonthsAgo(finance.leaseStartMonthsAgo)
+      insertVehicle.run(vehicle.id, vehicle.plate, vehicle.model, vehicle.type, vehicle.capacityKg, vehicle.year, vehicle.status, vehicle.driver, vehicle.lastMaintenance, vehicle.nextMaintenance, vehicle.totalTrips, vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.imageUrl, vehicle.external ? 1 : 0, finance.vehicleFunction, finance.logistics, finance.minTripsMonth, finance.financed ? 1 : 0, finance.downPaymentCs ?? 0, leaseStart, finance.leaseTermMonths ?? 0, finance.leaseMonthlyPaymentCs ?? 0, finance.residualValueCs ?? 0, finance.depreciationPct ?? 20)
+    }
     const insertMaintenance = this.db.prepare('INSERT INTO maintenance_records (id, vehicle_id, plate, maintenance_date, description, cost) VALUES (?, ?, ?, ?, ?, ?)')
     for (const record of MAINTENANCE_SEED) insertMaintenance.run(record.id, record.vehicleId, this.get(record.vehicleId).plate, record.date, record.description, record.cost)
   }
 }
 
 function toVehicle(row: VehicleRow): Vehicle {
+  const financed = Boolean(row.financed ?? 0)
+  const monthsElapsed = financed && row.lease_start ? wholeMonthsBetween(row.lease_start, new Date()) : 0
+  const monthsRemaining = financed ? Math.max(0, (row.lease_term_months ?? 0) - monthsElapsed) : 0
+  const paidMonths = Math.min(monthsElapsed, row.lease_term_months ?? 0)
+  const totalPaidCs = Number((row.down_payment_cs ?? 0) + (row.lease_monthly_payment_cs ?? 0) * paidMonths)
+  const remainingDebtCs = financed ? Number(Math.max(0, (row.price_cs ?? 0) - totalPaidCs + (row.residual_value_cs ?? 0)).toFixed(2)) : 0
+  const annualDepreciationCs = Number((((row.price_cs ?? 0) * (row.depreciation_pct ?? 20)) / 100).toFixed(2))
+  const monthlyDepreciationCs = Number((annualDepreciationCs / 12).toFixed(2))
+  const monthlyCostCs = Number(((financed ? row.lease_monthly_payment_cs ?? 0 : 0) + monthlyDepreciationCs).toFixed(2))
   return {
     id: row.id,
     plate: row.plate,
@@ -266,7 +364,41 @@ function toVehicle(row: VehicleRow): Vehicle {
     odometerKm: row.odometer_km,
     imageUrl: row.image_url,
     external: Boolean(row.external ?? 0),
+    vehicleFunction: (row.vehicle_function ?? '') as VehicleFunction,
+    logistics: row.logistics ?? '',
+    minTripsMonth: row.min_trips_month ?? 0,
+    financing: {
+      financed,
+      downPaymentCs: row.down_payment_cs ?? 0,
+      leaseStart: row.lease_start ?? '',
+      leaseTermMonths: row.lease_term_months ?? 0,
+      leaseMonthlyPaymentCs: row.lease_monthly_payment_cs ?? 0,
+      residualValueCs: row.residual_value_cs ?? 0,
+      depreciationPct: row.depreciation_pct ?? 20,
+      monthsElapsed,
+      monthsRemaining,
+      totalPaidCs,
+      remainingDebtCs,
+      monthlyDepreciationCs,
+      annualDepreciationCs,
+      monthlyCostCs,
+      financingLabel: financed ? `Leasing · cuota mensual C$ ${(row.lease_monthly_payment_cs ?? 0).toLocaleString('es-NI', { maximumFractionDigits: 0 })} · ${monthsRemaining} meses restantes` : 'Pagado al contado',
+    },
   }
+}
+
+function isoDateMonthsAgo(months: number): string {
+  const date = new Date()
+  date.setMonth(date.getMonth() - months)
+  return date.toISOString().slice(0, 10)
+}
+
+function wholeMonthsBetween(isoStart: string, now: Date): number {
+  const start = new Date(isoStart)
+  if (Number.isNaN(start.getTime())) return 0
+  let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth())
+  if (now.getDate() < start.getDate()) months -= 1
+  return Math.max(0, months)
 }
 
 function toMaintenance(row: MaintenanceRow): MaintenanceRecord {

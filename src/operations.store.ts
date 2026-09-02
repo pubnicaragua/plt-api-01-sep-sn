@@ -12,6 +12,28 @@ function freshDate(daysAgo: number) {
   return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(date)
 }
 
+const ES_MONTHS: Record<string, string> = {
+  ene: '01', feb: '02', mar: '03', abr: '04', may: '05', jun: '06',
+  jul: '07', ago: '08', sep: '09', sept: '09', oct: '10', nov: '11', dic: '12',
+  enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
+  julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12',
+}
+
+function monthKeyOf(dateText: string | undefined): string {
+  if (!dateText) return ''
+  const match = /(\d{1,2})[ /.-]+([a-zA-Záéíóúñ]+)(?:[ /.-]+(\d{4}))?/.exec(dateText.trim())
+  if (!match) return ''
+  const month = ES_MONTHS[match[2].toLowerCase()]
+  if (!month) return ''
+  const year = match[3] ?? String(new Date().getFullYear())
+  return `${year}-${month}`
+}
+
+function currentMonthKey(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+}
+
 function formatDateOffset(daysAhead: number) {
   const date = new Date()
   date.setDate(date.getDate() + daysAhead)
@@ -103,6 +125,19 @@ export class OperationsStore implements OnModuleDestroy {
     `)
     this.migrateClients()
     this.migrateIncidents()
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS driver_locations (
+        driver TEXT PRIMARY KEY,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        accuracy REAL NOT NULL DEFAULT 0,
+        speed_kmh REAL NOT NULL DEFAULT 0,
+        source TEXT NOT NULL DEFAULT 'app',
+        demo INTEGER NOT NULL DEFAULT 0,
+        updated_at INTEGER NOT NULL
+      );
+    `)
+    this.ensureDemoLocations()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM clients').get() as { count: number }).count) === 0) this.seedClients()
     else this.dedupeClients()
     if (Number((this.db.prepare('SELECT COUNT(*) AS count FROM drivers').get() as { count: number }).count) === 0) this.seedDrivers()
@@ -132,12 +167,21 @@ export class OperationsStore implements OnModuleDestroy {
     ['payment_date', 'TEXT NOT NULL DEFAULT \'\''],
     ['payment_status', 'TEXT NOT NULL DEFAULT \'Sin pagar\''],
     ['due_date', 'TEXT NOT NULL DEFAULT \'\''],
+    ['scheduled_date', 'TEXT NOT NULL DEFAULT \'\''],
+    ['scheduled_time', 'TEXT NOT NULL DEFAULT \'\''],
+    ['is_scheduled', 'INTEGER NOT NULL DEFAULT 0'],
+    ['cost_cs', 'REAL NOT NULL DEFAULT 0'],
   ]
 
   private migrateTrips() {
     const existing = new Set((this.db.prepare('PRAGMA table_info(trips)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     for (const [name, definition] of this.tripColumns) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE trips ADD COLUMN ${name} ${definition}`)
+    }
+    this.db.exec('CREATE TABLE IF NOT EXISTS incoex_meta (key TEXT PRIMARY KEY, value TEXT)')
+    if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('trip_cost_v1')) {
+      this.db.prepare(`UPDATE trips SET cost_cs = ROUND(estimated_cost_cs * (0.55 + (CAST(ABS(RANDOM()) % 9 AS REAL) * 0.07)), 2) WHERE estimated_cost_cs > 0 AND cost_cs = 0`).run()
+      this.db.prepare("INSERT INTO incoex_meta (key, value) VALUES ('trip_cost_v1', '1')").run()
     }
   }
 
@@ -288,6 +332,53 @@ export class OperationsStore implements OnModuleDestroy {
     }))
   }
 
+  private ensureDemoLocations() {
+    const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM driver_locations').get() as { count: number }).count)
+    if (count > 0) return
+    const insert = this.db.prepare('INSERT INTO driver_locations (driver, latitude, longitude, accuracy, speed_kmh, source, demo, updated_at) VALUES (?, ?, ?, ?, ?, ?, 1, ?)')
+    const now = Date.now()
+    for (const driver of this.drivers) {
+      if (driver.name === 'Sin asignar') continue
+      const jitter = () => Number((Math.random() * 0.02 - 0.01).toFixed(5))
+      insert.run(driver.name, Number((driver.latitude + jitter()).toFixed(5)), Number((driver.longitude + jitter()).toFixed(5)), 14, Number((15 + Math.random() * 35).toFixed(1)), 'demo', now)
+    }
+  }
+
+  updateDriverLocation(driver: string, latitude: number, longitude: number, accuracy = 0, speedKmh = 0, source = 'app') {
+    this.db.prepare('INSERT INTO driver_locations (driver, latitude, longitude, accuracy, speed_kmh, source, demo, updated_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?) ON CONFLICT(driver) DO UPDATE SET latitude = excluded.latitude, longitude = excluded.longitude, accuracy = excluded.accuracy, speed_kmh = excluded.speed_kmh, source = excluded.source, demo = 0, updated_at = excluded.updated_at')
+      .run(driver, latitude, longitude, accuracy, speedKmh, source, Date.now())
+    const known = this.drivers.find((candidate) => candidate.name.toLowerCase() === driver.toLowerCase())
+    if (known) {
+      known.latitude = latitude
+      known.longitude = longitude
+    }
+  }
+
+  getLivePositions() {
+    const rows = this.db.prepare('SELECT * FROM driver_locations').all() as unknown as Array<{ driver: string; latitude: number; longitude: number; accuracy: number; speed_kmh: number; source: string; demo: number; updated_at: number }>
+    const now = Date.now()
+    const lookup = new Map(this.drivers.map((driver) => [driver.name.toLowerCase(), driver]))
+    return rows.map((row) => {
+      const driver = lookup.get(row.driver.toLowerCase())
+      const ageSeconds = Math.max(0, Math.round((now - row.updated_at) / 1000))
+      const online = ageSeconds < (row.demo ? 300 : 120)
+      return {
+        driver: row.driver,
+        latitude: row.latitude,
+        longitude: row.longitude,
+        accuracy: row.accuracy,
+        speedKmh: row.speed_kmh,
+        source: row.source,
+        demo: Boolean(row.demo),
+        ageSeconds,
+        online,
+        status: driver?.status ?? 'Disponible',
+        vehicle: driver?.vehicle ?? '—',
+        plate: driver?.plate ?? '',
+      }
+    })
+  }
+
   private seedDrivers() {
     const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
@@ -366,6 +457,8 @@ export class OperationsStore implements OnModuleDestroy {
       destinationLng: row.destination_lng === null || row.destination_lng === undefined ? undefined : Number(row.destination_lng),
       distanceKm: row.distance_km === null || row.distance_km === undefined ? undefined : Number(row.distance_km),
       estimatedCostCs: row.estimated_cost_cs === null || row.estimated_cost_cs === undefined ? undefined : Number(row.estimated_cost_cs),
+      costCs: row.cost_cs === null || row.cost_cs === undefined ? 0 : Number(row.cost_cs),
+      profitCs: Number((Number(row.estimated_cost_cs ?? 0) - Number(row.cost_cs ?? 0)).toFixed(2)),
       serviceType: (row.service_type?.toString() ?? 'Urbano') as Trip['serviceType'],
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
@@ -378,6 +471,9 @@ export class OperationsStore implements OnModuleDestroy {
       paymentDate: row.payment_date?.toString(),
       paymentStatus: (row.payment_status?.toString() ?? 'Sin pagar') as Trip['paymentStatus'],
       dueDate: row.due_date?.toString(),
+      scheduledDate: row.scheduled_date?.toString() || undefined,
+      scheduledTime: row.scheduled_time?.toString() || undefined,
+      isScheduled: Boolean(row.is_scheduled),
     }))
   }
 
@@ -386,8 +482,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -579,7 +675,9 @@ export class OperationsStore implements OnModuleDestroy {
   getTrackingOverview() {
     return {
       activeOperations: this.getSummary().activeTrips,
+      trackingAt: new Date().toISOString(),
       drivers: this.drivers,
+      live: this.getLivePositions(),
       trips: this.trips.filter((trip) => trip.status !== 'Completado' && trip.status !== 'Cancelado' && trip.status !== 'Anulado'),
       incidents: this.incidents.filter((incident) => incident.status !== 'Resuelta'),
     }
@@ -647,6 +745,48 @@ export class OperationsStore implements OnModuleDestroy {
       .sort((a, b) => b.trips - a.trips)
       .slice(0, 5)
       .map((entry) => ({ ...entry, incomeCs: Number(entry.incomeCs.toFixed(2)) }))
+    const settingsNow = this.settings.get()
+    const monthNow = currentMonthKey()
+    const monthly = new Map<string, { trips: number; km: number; incomeCs: number }>()
+    for (const trip of completed) {
+      if (monthKeyOf(trip.date) !== monthNow) continue
+      const vehicle = vehicleOfTrip(trip)
+      if (!vehicle) continue
+      const current = monthly.get(vehicle.plate) ?? { trips: 0, km: 0, incomeCs: 0 }
+      current.trips += 1
+      current.km += trip.distanceKm ?? 0
+      current.incomeCs += trip.estimatedCostCs ?? 0
+      monthly.set(vehicle.plate, current)
+    }
+    const fleetReport = this.vehiclesStore.list().map((vehicle) => {
+      const current = monthly.get(vehicle.plate) ?? { trips: 0, km: 0, incomeCs: 0 }
+      const fuelPrice = vehicle.fuelType === 'Diésel' ? settingsNow.fuelPriceDieselCs : settingsNow.fuelPriceGasolineCs
+      const fuelEstimateCs = Number((current.km * vehicle.consumptionLPerKm * fuelPrice).toFixed(2))
+      const monthlyCostCs = vehicle.financing.monthlyCostCs
+      const marginCs = Number((current.incomeCs - fuelEstimateCs - monthlyCostCs).toFixed(2))
+      const avgIncomePerTrip = current.trips > 0 ? current.incomeCs / current.trips : (completed.length ? completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0) / completed.length : 0)
+      const breakEvenTrips = monthlyCostCs > 0 && avgIncomePerTrip > 0 ? Math.ceil(monthlyCostCs / avgIncomePerTrip) : 0
+      return {
+        plate: vehicle.plate,
+        model: vehicle.model,
+        vehicleFunction: vehicle.vehicleFunction,
+        logistics: vehicle.logistics,
+        external: vehicle.external ?? false,
+        financed: vehicle.financing.financed,
+        leaseMonthlyPaymentCs: vehicle.financing.leaseMonthlyPaymentCs,
+        monthsRemaining: vehicle.financing.monthsRemaining,
+        remainingDebtCs: vehicle.financing.remainingDebtCs,
+        monthlyDepreciationCs: vehicle.financing.monthlyDepreciationCs,
+        monthlyCostCs,
+        minTripsMonth: vehicle.minTripsMonth,
+        tripsMonth: current.trips,
+        kmMonth: Number(current.km.toFixed(1)),
+        incomeMonthCs: Number(current.incomeCs.toFixed(2)),
+        fuelEstimateCs,
+        marginCs,
+        breakEvenTrips,
+      }
+    })
     return {
       totalTrips: this.trips.length,
       completedTrips: completed.length,
@@ -662,6 +802,12 @@ export class OperationsStore implements OnModuleDestroy {
       topClients: topBy((trip) => trip.client),
       topVehicles,
       driverVehicle,
+      fleetReport,
+      profitSummary: {
+        totalProfitCs: Number(completed.reduce((sum, trip) => sum + (trip.profitCs ?? 0), 0).toFixed(2)),
+        profitableTrips: completed.filter((trip) => (trip.profitCs ?? 0) >= 0).length,
+        lossTrips: completed.filter((trip) => (trip.profitCs ?? 0) < 0).length,
+      },
     }
   }
 
@@ -686,11 +832,37 @@ export class OperationsStore implements OnModuleDestroy {
     contactPhone?: string
     originRefs?: string
     destinationRefs?: string
+    scheduledDate?: string
+    scheduledTime?: string
+    isScheduled?: boolean
   }) {
     const nextNumber = 4792 + this.trips.length
     const distanceKm = Math.max(0, input.distanceKm ?? 0)
     const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
-    const estimatedCostCs = Number((rate.baseFeeCs + distanceKm * rate.farePerKmCs).toFixed(2))
+
+    if (input.isScheduled || input.serviceType === 'Programado') {
+      const target = new Date(`${input.scheduledDate}T${input.scheduledTime ?? '00:00'}`)
+      const now = new Date()
+      if (Number.isNaN(target.getTime())) {
+        throw new BadRequestException('La fecha u hora programada es inválida')
+      }
+      if (target.getTime() < now.getTime() - 60 * 1000) {
+        throw new BadRequestException('No se puede programar un viaje en una fecha pasada')
+      }
+      const maxAhead = new Date(now.getTime() + 24 * 60 * 60 * 1000)
+      if (target.getTime() > maxAhead.getTime()) {
+        throw new BadRequestException('Los viajes programados no pueden superar las 24 horas')
+      }
+    }
+
+    const settings = this.settings.get()
+    const surchargePct = input.serviceType === 'Express'
+      ? settings.prioritySurchargePct
+      : input.serviceType === 'Programado'
+        ? settings.scheduledSurchargePct
+        : 0
+    const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs
+    const estimatedCostCs = Number((baseCost * (1 + surchargePct / 100)).toFixed(2))
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
       ? ((clientAccount.creditDays ?? 0) > 0 ? formatDateOffset(clientAccount.creditDays!) : collectOnDay(clientAccount.dueDay!))
@@ -721,10 +893,13 @@ export class OperationsStore implements OnModuleDestroy {
       destinationRefs: input.destinationRefs,
       paymentStatus: 'Sin pagar',
       dueDate,
+      scheduledDate: input.scheduledDate,
+      scheduledTime: input.scheduledTime,
+      isScheduled: input.isScheduled ?? input.serviceType === 'Programado',
     }
     this.trips.unshift(trip)
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0)
     if (input.autoAssign) {
       this.assignAutomatically(trip)
     }
@@ -886,7 +1061,7 @@ export class OperationsStore implements OnModuleDestroy {
     return trip
   }
 
-  exportCsv(collection: 'trips' | 'drivers' | 'clients' | 'incidents' | 'packages') {
+  exportCsv(collection: 'trips' | 'drivers' | 'clients' | 'incidents' | 'packages' | 'vehicles') {
     const escape = (value: string | number) => {
       const text = String(value).replaceAll('"', '""')
       return text.includes(',') || text.includes('"') || text.includes('\n') ? `"${text}"` : text
@@ -916,6 +1091,9 @@ export class OperationsStore implements OnModuleDestroy {
           index += 1
         }
       }
+    } else if (collection === 'vehicles') {
+      rows.push('Placa,Modelo,Tipo,Función,Sistema logístico,Estado,Conductor,Combustible,ConsumoLKm,PrecioC$,OdometroKm,Financiado,PagoMensualC$,MesesRestantes,DeudaRestanteC$,DepreciacionMensualC$,CostoMensualC$,ViajesMes,MinimoViajesMes,IngresoMesC$,MargenProyectadoC$')
+      for (const vehicle of this.vehiclesStore.list()) rows.push([vehicle.plate, vehicle.model, vehicle.type, vehicle.vehicleFunction, vehicle.logistics, vehicle.status, vehicle.driver, vehicle.fuelType, vehicle.consumptionLPerKm, vehicle.priceCs, vehicle.odometerKm, vehicle.financing.financed ? 'Sí' : 'No', vehicle.financing.leaseMonthlyPaymentCs, vehicle.financing.monthsRemaining, vehicle.financing.remainingDebtCs, vehicle.financing.monthlyDepreciationCs, vehicle.financing.monthlyCostCs, vehicle.totalTrips, vehicle.minTripsMonth, vehicle.priceCs, 0].map(escape).join(','))
     }
     return rows.join('\n')
   }
