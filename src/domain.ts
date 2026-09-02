@@ -1,4 +1,4 @@
-export type TripStatus = 'Pendiente' | 'Asignado' | 'En camino' | 'En entrega' | 'Completado' | 'Cancelado'
+export type TripStatus = 'Pendiente' | 'Asignado' | 'En camino' | 'En entrega' | 'Completado' | 'Cancelado' | 'Anulado'
 export type DriverStatus = 'Disponible' | 'En viaje' | 'En entrega' | 'Fuera de servicio'
 export type IncidentPriority = 'Baja' | 'Media' | 'Alta' | 'Crítica'
 export type IncidentStatus = 'Abierta' | 'En proceso' | 'Resuelta'

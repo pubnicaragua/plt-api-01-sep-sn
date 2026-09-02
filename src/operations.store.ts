@@ -11,8 +11,6 @@ function freshDate(daysAgo: number) {
   return new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(date)
 }
 
-const LEGACY_SEED_DATES = ['26 Ago', '27 Ago', '28 Ago', '29 Ago', '30 Ago', '31 Ago']
-
 @Injectable()
 export class OperationsStore implements OnModuleDestroy {
   private readonly db: DatabaseSync
@@ -270,11 +268,15 @@ export class OperationsStore implements OnModuleDestroy {
   private ensureSeedTrips() {
     const exists = this.db.prepare('SELECT 1 AS present FROM trips WHERE id = ?')
     const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    const refreshDate = this.db.prepare('UPDATE trips SET trip_date = ? WHERE id = ?')
+    const recentDates = new Set(Array.from({ length: 16 }, (_, offset) => freshDate(offset)))
+    const syncSeed = this.db.prepare('UPDATE trips SET trip_date = ?, distance_km = ?, estimated_cost_cs = ? WHERE id = ?')
     for (const trip of [...this.seedData].reverse()) {
       if (exists.get(trip.id)) {
-        const row = this.db.prepare('SELECT trip_date FROM trips WHERE id = ?').get(trip.id) as unknown as { trip_date: string }
-        if (LEGACY_SEED_DATES.includes(row.trip_date)) refreshDate.run(trip.date, trip.id)
+        const row = this.db.prepare('SELECT trip_date, distance_km, estimated_cost_cs FROM trips WHERE id = ?').get(trip.id) as unknown as { trip_date: string; distance_km: number | null; estimated_cost_cs: number | null }
+        const staleDate = !recentDates.has(row.trip_date)
+        const staleCost = row.estimated_cost_cs === null || Number(row.estimated_cost_cs) !== Number(trip.estimatedCostCs)
+        const staleDistance = Number(row.distance_km ?? 0) !== Number(trip.distanceKm ?? 0)
+        if (staleDate || staleCost || staleDistance) syncSeed.run(trip.date, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.id)
       } else {
         this.writeSeedTrip(insert, trip)
       }
@@ -478,17 +480,17 @@ export class OperationsStore implements OnModuleDestroy {
     return {
       activeOperations: this.getSummary().activeTrips,
       drivers: this.drivers,
-      trips: this.trips.filter((trip) => trip.status !== 'Completado' && trip.status !== 'Cancelado'),
+      trips: this.trips.filter((trip) => trip.status !== 'Completado' && trip.status !== 'Cancelado' && trip.status !== 'Anulado'),
       incidents: this.incidents.filter((incident) => incident.status !== 'Resuelta'),
     }
   }
 
   getReports(): ReportSummary {
     const completed = this.trips.filter((trip) => trip.status === 'Completado')
-    const cancelled = this.trips.filter((trip) => trip.status === 'Cancelado')
+    const cancelled = this.trips.filter((trip) => trip.status === 'Cancelado' || trip.status === 'Anulado')
     const withDistance = this.trips.filter((trip) => Number.isFinite(trip.distanceKm) && (trip.distanceKm ?? 0) > 0)
     const totalDistanceKm = Number(withDistance.reduce((sum, trip) => sum + (trip.distanceKm ?? 0), 0).toFixed(1))
-    const totalRevenueCs = Number(this.trips.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0).toFixed(2))
+    const totalRevenueCs = Number(completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0).toFixed(2))
     const averageDistanceKm = withDistance.length ? Number((totalDistanceKm / withDistance.length).toFixed(1)) : 0
     const groupByDate = (source: Trip[]) => {
       const counts = new Map<string, number>()
@@ -545,6 +547,7 @@ export class OperationsStore implements OnModuleDestroy {
     distanceKm?: number
     serviceType?: 'Urbano' | 'Express' | 'Programado'
     transport?: 'Moto' | 'Vehículo' | 'Camión'
+    autoAssign?: boolean
     contactName?: string
     contactPhone?: string
   }) {
@@ -578,7 +581,24 @@ export class OperationsStore implements OnModuleDestroy {
     this.trips.unshift(trip)
     const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '')
+    if (input.autoAssign) {
+      this.assignAutomatically(trip)
+    }
     return trip
+  }
+
+  private assignAutomatically(trip: Trip) {
+    const preferred = ['Carlos Díaz', 'José Martínez', 'Juan Pérez']
+    const driver =
+      this.drivers.find((candidate) => preferred.includes(candidate.name) && candidate.status === 'Disponible')
+      ?? this.drivers.find((candidate) => candidate.status === 'Disponible')
+    if (!driver) return
+    trip.driver = driver.name
+    trip.status = 'Asignado'
+    driver.status = 'En viaje'
+    driver.route = `${trip.origin} → ${trip.destination}`
+    this.persistTrip(trip)
+    this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
   }
 
   login(input: { email: string; role: 'company' | 'driver' | 'admin' }) {
@@ -669,12 +689,13 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private readonly allowedTransitions: Record<TripStatus, TripStatus[]> = {
-    Pendiente: ['Asignado', 'Cancelado'],
-    Asignado: ['En camino', 'Cancelado'],
-    'En camino': ['En entrega', 'Cancelado'],
-    'En entrega': ['Completado', 'Cancelado'],
-    Completado: [],
+    Pendiente: ['Asignado', 'Cancelado', 'Anulado'],
+    Asignado: ['En camino', 'Cancelado', 'Anulado'],
+    'En camino': ['En entrega', 'Cancelado', 'Anulado'],
+    'En entrega': ['Completado', 'Cancelado', 'Anulado'],
+    Completado: ['Anulado'],
     Cancelado: [],
+    Anulado: [],
   }
 
   updateTripStatus(id: string, status: TripStatus) {
@@ -684,7 +705,7 @@ export class OperationsStore implements OnModuleDestroy {
     if (!allowed.includes(status)) {
       throw new BadRequestException(`No se puede pasar el viaje de ${trip.status} a ${status}`)
     }
-    if (status === 'Cancelado' && trip.driver !== 'Sin asignar') {
+    if ((status === 'Cancelado' || status === 'Anulado') && trip.driver !== 'Sin asignar') {
       const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
       if (driver) {
         driver.status = 'Disponible'

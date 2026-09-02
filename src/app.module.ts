@@ -20,6 +20,8 @@ import { SettingsController } from './settings.controller'
 import { SettingsStore } from './settings.store'
 import { UploadsController } from './uploads.controller'
 import { PlacesController } from './places.controller'
+import { FinanceController } from './finance.controller'
+import { FinanceStore } from './finance.store'
 
 @Module({
   controllers: [
@@ -39,7 +41,8 @@ import { PlacesController } from './places.controller'
     SettingsController,
     UploadsController,
     PlacesController,
+    FinanceController,
   ],
-  providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore],
+  providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore, FinanceStore],
 })
 export class AppModule {}

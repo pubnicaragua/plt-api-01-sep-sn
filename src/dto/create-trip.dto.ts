@@ -63,6 +63,10 @@ export class CreateTripDto {
   transport?: 'Moto' | 'Vehículo' | 'Camión'
 
   @IsOptional()
+  @IsBoolean()
+  autoAssign?: boolean
+
+  @IsOptional()
   @IsString()
   contactName?: string
 
