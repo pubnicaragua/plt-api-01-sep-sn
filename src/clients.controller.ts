@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsBoolean, IsEmail, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
+import { IsBoolean, IsEmail, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Min } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class CreateClientDto {
@@ -74,6 +74,9 @@ class CreateClientDto {
 }
 
 class UpdateClientDto {
+  @IsOptional()
+  @IsIn(['Activo', 'Suspendido', 'Inactivo'])
+  status?: 'Activo' | 'Suspendido' | 'Inactivo'
   @IsOptional()
   @IsString()
   phone?: string

@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsIn, IsNumber, IsOptional, IsString, Min } from 'class-validator'
+import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
 import type { TripStatus } from './domain'
 import { AssignTripDto } from './dto/assign-trip.dto'
 import { CreateTripDto } from './dto/create-trip.dto'
@@ -9,6 +9,11 @@ import { OperationsStore } from './operations.store'
 class UpdateTripStatusDto {
   @IsIn(['Pendiente', 'Asignado', 'En camino', 'En entrega', 'Completado', 'Cancelado', 'Anulado'])
   status!: TripStatus
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  reason?: string
 }
 
 class UpdateTripPaymentDto {
@@ -64,7 +69,7 @@ export class TripsController {
 
   @Patch(':id/status')
   @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, anulado…)' })
-  updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status) }
+  updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status, body.reason) }
 
   @Patch(':id/payment')
   @ApiOperation({ summary: 'Registrar el pago del viaje: efectivo, transferencia (cuenta/referencia), financiamiento o contra entrega; la fecha de cobro se calcula desde el crédito del cliente.' })

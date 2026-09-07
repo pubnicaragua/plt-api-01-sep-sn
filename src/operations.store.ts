@@ -129,6 +129,16 @@ export class OperationsStore implements OnModuleDestroy {
         longitude REAL,
         evidence TEXT NOT NULL DEFAULT ''
       );
+      CREATE TABLE IF NOT EXISTS history_events (
+        id TEXT PRIMARY KEY,
+        event_time TEXT NOT NULL,
+        event_date TEXT NOT NULL,
+        type TEXT NOT NULL,
+        title TEXT NOT NULL,
+        detail TEXT NOT NULL,
+        color TEXT NOT NULL DEFAULT 'blue',
+        created_at INTEGER NOT NULL
+      );
     `)
     this.migrateClients()
     this.migrateIncidents()
@@ -154,6 +164,7 @@ export class OperationsStore implements OnModuleDestroy {
     this.clients = this.loadClients()
     this.drivers = this.loadDrivers()
     this.incidents = this.loadIncidents()
+    this.ensureHistorySeed()
   }
 
   private readonly tripColumns: Array<[string, string]> = [
@@ -181,6 +192,7 @@ export class OperationsStore implements OnModuleDestroy {
     ['cost_cs', 'REAL NOT NULL DEFAULT 0'],
     ['weight', 'REAL'],
     ['weight_unit', 'TEXT NOT NULL DEFAULT \'kg\''],
+    ['cancel_reason', 'TEXT NOT NULL DEFAULT \'\''],
   ]
 
   private migrateTrips() {
@@ -250,6 +262,22 @@ export class OperationsStore implements OnModuleDestroy {
     { id: 'EVT-006', time: '09:20', date: '27 Ago', type: 'Conexión', title: 'Conductor conectado', detail: 'Roberto Sánchez · Nissan NV200', color: 'slate' },
   ]
 
+  private ensureHistorySeed() {
+    const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM history_events').get() as { count: number }).count)
+    if (count > 0) return
+    const insert = this.db.prepare('INSERT INTO history_events (id, event_time, event_date, type, title, detail, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const event of this.history) insert.run(event.id, event.time, event.date, event.type, event.title, event.detail, event.color, Date.now() - this.history.indexOf(event) * 1000)
+  }
+
+  private recordHistory(type: string, title: string, detail: string, color: HistoryEvent['color'] = 'blue') {
+    const now = new Date()
+    const time = now.toLocaleTimeString('es-NI', { hour: '2-digit', minute: '2-digit' })
+    const date = now.toLocaleDateString('es-NI', { day: '2-digit', month: 'short' })
+    const id = `EVT-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`
+    this.db.prepare('INSERT INTO history_events (id, event_time, event_date, type, title, detail, color, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, time, date, type, title, detail, color, Date.now())
+  }
+
   private seedClients() {
     const insert = this.db.prepare('INSERT INTO clients (id, name, type, phone, email, address, contact, tax_id, notes, trips, active_requests, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     for (const client of this.clients) insert.run(client.id, client.name, client.type, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.trips, client.activeRequests, client.status)
@@ -268,6 +296,8 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('license_exp')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_exp TEXT NOT NULL DEFAULT ''")
     if (!columns.has('doc_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN doc_no TEXT NOT NULL DEFAULT ''")
     if (!columns.has('notes')) this.db.exec("ALTER TABLE drivers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('license_categories')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_categories TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('blood_type')) this.db.exec("ALTER TABLE drivers ADD COLUMN blood_type TEXT NOT NULL DEFAULT ''")
   }
 
   private migrateClients() {    const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
@@ -290,6 +320,8 @@ export class OperationsStore implements OnModuleDestroy {
     if (!driverColumns.has('license_exp')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_exp TEXT NOT NULL DEFAULT ''")
     if (!driverColumns.has('doc_no')) this.db.exec("ALTER TABLE drivers ADD COLUMN doc_no TEXT NOT NULL DEFAULT ''")
     if (!driverColumns.has('notes')) this.db.exec("ALTER TABLE drivers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('license_categories')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_categories TEXT NOT NULL DEFAULT ''")
+    if (!driverColumns.has('blood_type')) this.db.exec("ALTER TABLE drivers ADD COLUMN blood_type TEXT NOT NULL DEFAULT ''")
     const migrationMarker = this.db.prepare("SELECT 1 AS present FROM incoex_meta WHERE key = ?")
     if (!migrationMarker.get('drv_external_v1')) {
       this.db.prepare("UPDATE drivers SET external = 1 WHERE name IN ('Miguel Torres', 'José Martínez') AND external = 0").run()
@@ -415,8 +447,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private seedDrivers() {
-    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '')
+    const insert = this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes, license_categories, blood_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    for (const driver of this.drivers) insert.run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '')
   }
 
   private ensureSeedDrivers() {
@@ -445,6 +477,8 @@ export class OperationsStore implements OnModuleDestroy {
       licenseExp: String(row.license_exp ?? ''),
       docNo: String(row.doc_no ?? ''),
       notes: String(row.notes ?? ''),
+      licenseCategories: String(row.license_categories ?? ''),
+      bloodType: String(row.blood_type ?? ''),
     }))
   }
 
@@ -513,6 +547,7 @@ export class OperationsStore implements OnModuleDestroy {
       scheduledDate: row.scheduled_date?.toString() || undefined,
       scheduledTime: row.scheduled_time?.toString() || undefined,
       isScheduled: Boolean(row.is_scheduled),
+      cancelReason: row.cancel_reason?.toString() || undefined,
     }))
   }
 
@@ -521,8 +556,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -556,7 +591,10 @@ export class OperationsStore implements OnModuleDestroy {
   listDrivers() { return this.drivers }
   listClients() { return this.clients }
   listIncidents() { return this.incidents }
-  listHistory() { return this.history }
+  listHistory() {
+    const rows = this.db.prepare('SELECT id, event_time, event_date, type, title, detail, color FROM history_events ORDER BY created_at DESC LIMIT 500').all() as unknown as Array<Record<string, unknown>>
+    return rows.map((row) => ({ id: String(row.id), time: String(row.event_time), date: String(row.event_date), type: String(row.type), title: String(row.title), detail: String(row.detail), color: row.color as HistoryEvent['color'] }))
+  }
 
 checkSession(token: string) {
     const session = this.sessions.get(token)
@@ -657,7 +695,10 @@ getClientProfile(id: string) {
       const row = existing as unknown as Record<string, unknown>
       this.db.prepare('UPDATE clients SET name = ?, type = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ? WHERE id = ?')
         .run(name, input.type ?? String(row.type), input.phone ?? String(row.phone), email || String(row.email), input.address ?? String(row.address), input.contact ?? String(row.contact), input.taxId ?? String(row.tax_id), input.notes ?? String(row.notes), input.creditDays ?? Number(row.credit_days ?? 0), input.dueDay ?? Number(row.due_day ?? 0), String(billing.billingPeriod ?? 'semanal'), billing.billingCustomDays ?? 7, billing.billingCutDay ?? 0, String(billing.billingCutTime ?? '22:00'), billing.billingActive ? 1 : 0, String(billing.whatsapp ?? ''), String(row.id))
-      return { ...this.listClients().find((client) => client.id === row.id), existed: true }
+      this.db.prepare("UPDATE clients SET status = 'Activo' WHERE id = ?").run(String(row.id))
+      const restored = this.clients.find((client) => client.id === row.id)
+      if (restored) restored.status = 'Activo'
+      return restored ? { ...restored, existed: true } : { ...this.listClients().find((client) => client.id === row.id), existed: true }
     }
     const client: Client = {
       id: `cli-${String(Date.now()).slice(-6)}`,
@@ -696,7 +737,7 @@ getClientProfile(id: string) {
     }
   }
 
-  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string }) {
+  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string; status?: Client['status'] }) {
     const client = this.clients.find((candidate) => candidate.id === id)
     if (!client) throw new NotFoundException('Cliente no encontrado')
     if (input.phone !== undefined) client.phone = input.phone
@@ -713,28 +754,42 @@ getClientProfile(id: string) {
     if (input.billingCutTime !== undefined) client.billingCutTime = String(input.billingCutTime)
     if (input.billingActive !== undefined) client.billingActive = Boolean(input.billingActive)
     if (input.whatsapp !== undefined) client.whatsapp = String(input.whatsapp).replace(/[^\d]/g, '')
-    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ? WHERE id = ?')
-      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.billingPeriod ?? 'semanal', client.billingCustomDays ?? 7, client.billingCutDay ?? 0, client.billingCutTime ?? '22:00', client.billingActive ? 1 : 0, client.whatsapp ?? '', id)
+    if (input.status !== undefined) client.status = input.status
+    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ?, status = ? WHERE id = ?')
+      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.billingPeriod ?? 'semanal', client.billingCustomDays ?? 7, client.billingCutDay ?? 0, client.billingCutTime ?? '22:00', client.billingActive ? 1 : 0, client.whatsapp ?? '', client.status, id)
     return client
   }
 
   deleteClient(id: string) {
-    const index = this.clients.findIndex((candidate) => candidate.id === id)
-    if (index === -1) throw new NotFoundException('Cliente no encontrado')
-    this.clients.splice(index, 1)
-    this.db.prepare('DELETE FROM clients WHERE id = ?').run(id)
-    return { deleted: id }
+    const client = this.clients.find((candidate) => candidate.id === id)
+    if (!client) throw new NotFoundException('Cliente no encontrado')
+    client.status = 'Inactivo'
+    this.db.prepare("UPDATE clients SET status = 'Inactivo' WHERE id = ?").run(id)
+    return { deleted: id, status: 'Inactivo' }
   }
 
-  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string }) {
+  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
     const phone = (input.phone ?? '').trim()
     const name = (input.name ?? '').trim()
+    if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
     const existing = this.db.prepare('SELECT * FROM drivers WHERE phone = ? AND phone != \'\' ORDER BY rowid ASC LIMIT 1').get(phone) ?? this.db.prepare('SELECT * FROM drivers WHERE lower(name) = ? ORDER BY rowid ASC LIMIT 1').get(name.toLowerCase())
     if (existing) {
       const row = existing as unknown as Record<string, unknown>
-      this.db.prepare('UPDATE drivers SET name = ?, vehicle = ?, plate = ?, email = ?, external = ? WHERE id = ?')
-        .run(name, input.vehicle ?? String(row.vehicle), input.plate ?? String(row.plate), (input.email ?? String(row.email)).trim(), input.external ? 1 : Number(row.external ?? 0), input.licenseNo ?? String(row.license_no ?? ''), input.licenseExp ?? String(row.license_exp ?? ''), input.docNo ?? String(row.doc_no ?? ''), input.notes ?? String(row.notes ?? ''), String(row.id))
-      const updated = this.listDrivers().find((driver) => driver.id === row.id)
+      const nextPhone = phone || String(row.phone ?? '')
+      const nextVehicle = String(row.vehicle ?? 'Sin vehículo asignado')
+      const nextPlate = String(row.plate ?? '—')
+      const nextEmail = (input.email ?? String(row.email ?? '')).trim()
+      const nextExternal = input.external !== undefined ? Boolean(input.external) : Boolean(Number(row.external ?? 0))
+      const nextLicenseNo = input.licenseNo ?? String(row.license_no ?? '')
+      const nextLicenseExp = input.licenseExp ?? String(row.license_exp ?? '')
+      const nextDocNo = input.docNo ?? String(row.doc_no ?? '')
+      const nextNotes = input.notes ?? String(row.notes ?? '')
+      const nextLicenseCategories = input.licenseCategories ?? String(row.license_categories ?? '')
+      const nextBloodType = input.bloodType ?? String(row.blood_type ?? '')
+      this.db.prepare('UPDATE drivers SET name = ?, phone = ?, vehicle = ?, plate = ?, email = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
+        .run(name, nextPhone, nextVehicle, nextPlate, nextEmail, nextExternal ? 1 : 0, nextLicenseNo, nextLicenseExp, nextDocNo, nextNotes, nextLicenseCategories, nextBloodType, String(row.id))
+      const updated = this.drivers.find((driver) => driver.id === row.id)
+      if (updated) Object.assign(updated, { name, phone: nextPhone, vehicle: nextVehicle, plate: nextPlate, email: nextEmail, external: nextExternal, licenseNo: nextLicenseNo, licenseExp: nextLicenseExp, docNo: nextDocNo, notes: nextNotes, licenseCategories: nextLicenseCategories, bloodType: nextBloodType })
       return updated ? { ...updated, existed: true } : updated
     }
     const driver: Driver = {
@@ -742,8 +797,8 @@ getClientProfile(id: string) {
       name,
       phone,
       email: (input.email ?? '').trim(),
-      vehicle: input.vehicle ?? 'Sin vehículo asignado',
-      plate: input.plate ?? '—',
+      vehicle: 'Sin vehículo asignado',
+      plate: '—',
       status: 'Disponible',
       route: 'Sin viaje activo',
       latitude: 12.114993 + (this.drivers.length % 3) * 0.01,
@@ -753,16 +808,19 @@ getClientProfile(id: string) {
       licenseExp: String(input.licenseExp ?? ''),
       docNo: String(input.docNo ?? ''),
       notes: String(input.notes ?? ''),
+      licenseCategories: String(input.licenseCategories ?? ''),
+      bloodType: String(input.bloodType ?? ''),
     }
     this.drivers.push(driver)
-    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0)
+    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes, license_categories, blood_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '')
     return driver
   }
 
-  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string }) {
+  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
     const driver = this.drivers.find((candidate) => candidate.id === id)
     if (!driver) throw new NotFoundException('Conductor no encontrado')
+    if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
     if (input.vehicle !== undefined) driver.vehicle = input.vehicle
     if (input.plate !== undefined) driver.plate = input.plate
     if (input.external !== undefined) driver.external = Boolean(input.external)
@@ -770,8 +828,10 @@ getClientProfile(id: string) {
     if (input.licenseExp !== undefined) driver.licenseExp = input.licenseExp
     if (input.docNo !== undefined) driver.docNo = input.docNo
     if (input.notes !== undefined) driver.notes = input.notes
-    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ? WHERE id = ?')
-      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', id)
+    if (input.licenseCategories !== undefined) driver.licenseCategories = input.licenseCategories
+    if (input.bloodType !== undefined) driver.bloodType = input.bloodType
+    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
+      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', id)
     return driver
   }
 
@@ -820,6 +880,7 @@ getClientProfile(id: string) {
     this.incidents.unshift(incident)
     this.db.prepare('INSERT INTO incidents (id, trip, driver, client, type, priority, status, description, latitude, longitude, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status, incident.description ?? '', incident.latitude ?? null, incident.longitude ?? null, incident.evidence ?? '')
+    this.recordHistory('Incidencia', 'Incidencia reportada', `${incident.id} · ${incident.trip} · ${incident.type}`, 'gold')
     return incident
   }
 
@@ -828,6 +889,7 @@ getClientProfile(id: string) {
     if (!incident) throw new NotFoundException('Incidencia no encontrada')
     incident.status = status
     this.db.prepare('UPDATE incidents SET status = ? WHERE id = ?').run(status, id)
+    this.recordHistory('Incidencia', `Incidencia ${status.toLowerCase()}`, `${incident.id} · ${incident.type}`, status === 'Resuelta' ? 'mint' : 'gold')
     return incident
   }
 
@@ -912,6 +974,15 @@ getClientProfile(id: string) {
       .sort((a, b) => b.trips - a.trips)
       .slice(0, 5)
       .map((entry) => ({ ...entry, incomeCs: Number(entry.incomeCs.toFixed(2)) }))
+    const packageVolume = new Map<string, { client: string; packages: number; trips: number; weightKg: number }>()
+    for (const trip of this.trips.filter((candidate) => !['Cancelado', 'Anulado'].includes(candidate.status))) {
+      const current = packageVolume.get(trip.client) ?? { client: trip.client, packages: 0, trips: 0, weightKg: 0 }
+      current.packages += Math.max(0, Math.floor(trip.packages))
+      current.trips += 1
+      const packageWeight = trip.weightUnit === 'lb' ? (trip.weight ?? 0) / 2.20462 : (trip.weight ?? 0)
+      current.weightKg += packageWeight * Math.max(0, Math.floor(trip.packages))
+      packageVolume.set(trip.client, current)
+    }
     const settingsNow = this.settings.get()
     const monthNow = currentMonthKey()
     const monthly = new Map<string, { trips: number; km: number; incomeCs: number }>()
@@ -977,6 +1048,7 @@ getClientProfile(id: string) {
       topVehicles,
       driverVehicle,
       fleetReport,
+      packageVolumeByClient: Array.from(packageVolume.values()).sort((a, b) => b.packages - a.packages).map((row) => ({ ...row, weightKg: Number(row.weightKg.toFixed(1)) })),
       profitSummary: {
         totalProfitCs: Number(completed.reduce((sum, trip) => sum + (trip.profitCs ?? 0), 0).toFixed(2)),
         profitableTrips: completed.filter((trip) => (trip.profitCs ?? 0) >= 0).length,
@@ -1078,6 +1150,7 @@ getClientProfile(id: string) {
     this.trips.unshift(trip)
     const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0)
+    this.recordHistory('Solicitud', 'Nueva solicitud recibida', `Viaje ${trip.id} · ${trip.client} · ${trip.packages} paquetes`, 'blue')
     if (input.autoAssign) {
       this.assignAutomatically(trip)
     }
@@ -1121,11 +1194,14 @@ getClientProfile(id: string) {
     driver.route = `${trip.origin} → ${trip.destination}`
     this.persistTrip(trip)
     this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
+    this.recordHistory('Asignación', 'Conductor asignado automáticamente', `Viaje ${trip.id} · ${trip.client} · ${driver.name}`, 'blue')
   }
 
   login(input: { email: string; password?: string; role: 'company' | 'driver' | 'admin' }) {
     const normalized = input.email.trim().toLowerCase()
-    const stored = this.db.prepare('SELECT id, password_hash FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string; password_hash: string } | undefined
+    const panelUser = this.db.prepare('SELECT id, name, email, phone, role, status, session_state, password_hash FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string; name: string; email: string; phone: string; role: string; status: string; session_state?: string; password_hash: string } | undefined
+    const stored = panelUser
+    if (panelUser && panelUser.status !== 'Activo') throw new UnauthorizedException('Este usuario está inactivo; solicita que un administrador lo active')
     if (stored && stored.password_hash) {
       if (!input.password || !verifyPassword(input.password, stored.password_hash)) {
         throw new UnauthorizedException('Credenciales incorrectas para este usuario')
@@ -1136,25 +1212,33 @@ getClientProfile(id: string) {
       'jose.martinez@incoex.com.ni': 'drv-007',
       'conductor@incoex.com.ni': 'drv-006',
     }
-    const driverId = input.role === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
+    const effectiveRole = panelUser?.role ?? input.role
+    const driverId = effectiveRole === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
     const driver = driverId ? this.drivers.find((candidate) => candidate.id === driverId) : undefined
-    const panelUser = this.db.prepare('SELECT id FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string } | undefined
-    const userId = panelUser?.id ?? driver?.id ?? (input.role === 'company' ? 'cli-001' : 'admin-001')
+    const userId = panelUser?.id ?? driver?.id ?? (effectiveRole === 'company' ? 'cli-001' : 'admin-001')
     const revoked = this.db.prepare('SELECT session_state FROM app_users WHERE id = ?').get(userId)
     if (revoked && String((revoked as { session_state: string }).session_state) === 'Cerrada') {
       this.db.prepare('UPDATE app_users SET session_state = ? WHERE id = ?').run('Activa', userId)
     }
-    const accessToken = this.issueSession(userId, normalized, input.role)
+    const accessToken = this.issueSession(userId, normalized, effectiveRole)
+    let permissions: string[] = []
+    try {
+      const roleRow = this.db.prepare('SELECT permissions_json FROM role_permissions WHERE code = ?').get(effectiveRole) as unknown as { permissions_json?: string } | undefined
+      const parsed = roleRow?.permissions_json ? JSON.parse(roleRow.permissions_json) : []
+      if (Array.isArray(parsed)) permissions = parsed.filter((permission): permission is string => typeof permission === 'string')
+    } catch { permissions = effectiveRole === 'admin' ? ['*'] : [] }
     return {
       accessToken,
       user: {
         id: userId,
-        email: input.email,
-        role: input.role,
-        displayName: driver?.name ?? (input.role === 'driver' ? 'Carlos Díaz' : input.role === 'company' ? 'Mario Martínez' : 'Mario Martínez'),
+        email: panelUser?.email ?? input.email,
+        role: effectiveRole,
+        roleName: effectiveRole === 'admin' ? 'Superadministrador' : effectiveRole === 'management' ? 'Gerencia' : effectiveRole === 'operations' ? 'Operaciones' : effectiveRole === 'finance' ? 'Finanzas' : effectiveRole === 'support' ? 'Soporte' : effectiveRole === 'driver' ? 'Conductor' : effectiveRole === 'corporate' ? 'Usuario corporativo' : effectiveRole === 'store' ? 'Tienda o recepción' : effectiveRole,
+        displayName: panelUser?.name ?? driver?.name ?? (effectiveRole === 'driver' ? 'Carlos Díaz' : effectiveRole === 'company' ? 'Mario Martínez' : 'Mario Martínez'),
         vehicle: driver?.vehicle,
         plate: driver?.plate,
-        phone: driver?.phone,
+        phone: panelUser?.phone ?? driver?.phone,
+        permissions,
       },
     }
   }
@@ -1209,6 +1293,8 @@ getClientProfile(id: string) {
     driver.status = 'En viaje'
     driver.route = `${trip.origin} → ${trip.destination}`
     this.persistTrip(trip)
+    this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
+    this.recordHistory('Asignación', 'Conductor asignado', `Viaje ${trip.id} · ${trip.client} · ${driver.name}`, 'blue')
     return trip
   }
 
@@ -1269,22 +1355,31 @@ getClientProfile(id: string) {
     Anulado: [],
   }
 
-  updateTripStatus(id: string, status: TripStatus) {
+  updateTripStatus(id: string, status: TripStatus, reason?: string) {
     const trip = this.getTrip(id)
     if (status === trip.status) return trip
     const allowed = this.allowedTransitions[trip.status]
     if (!allowed.includes(status)) {
       throw new BadRequestException(`No se puede pasar el viaje de ${trip.status} a ${status}`)
     }
+    const normalizedReason = String(reason ?? '').trim()
+    if ((status === 'Cancelado' || status === 'Anulado') && normalizedReason.length < 5) {
+      throw new BadRequestException('Debes indicar el motivo de cancelación o anulación del viaje')
+    }
     if ((status === 'Cancelado' || status === 'Anulado') && trip.driver !== 'Sin asignar') {
       const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
       if (driver) {
         driver.status = 'Disponible'
         driver.route = 'Sin viaje activo'
+        this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
       }
     }
     trip.status = status
+    if (status === 'Cancelado' || status === 'Anulado') trip.cancelReason = normalizedReason
     this.persistTrip(trip)
+    const historyType = status === 'Cancelado' ? 'Cancelación' : status === 'Anulado' ? 'Anulación' : 'Cambio de estado'
+    const color = status === 'Cancelado' || status === 'Anulado' ? 'red' : status === 'Completado' ? 'mint' : 'blue'
+    this.recordHistory(historyType, `Viaje ${status.toLowerCase()}`, `Viaje ${trip.id} · ${trip.client}${trip.cancelReason ? ` · Motivo: ${trip.cancelReason}` : ''}`, color)
     return trip
   }
 
@@ -1310,7 +1405,7 @@ getClientProfile(id: string) {
       rows.push('Guia,Viaje,Cliente,Peso,Unidad,Dimensiones,Estado')
       let index = 1
       for (const trip of this.trips) {
-        for (let packageIndex = 1; packageIndex <= Math.min(trip.packages, 3); packageIndex += 1) {
+        for (let packageIndex = 1; packageIndex <= Math.max(0, Math.floor(trip.packages)); packageIndex += 1) {
           const id = `PKG-${trip.id.replace('#', '')}-${packageIndex}`
           const weightKg = trip.weight ?? (1 + ((trip.packages + packageIndex) % 24))
           const weightLb = Number((weightKg * 2.20462).toFixed(1))

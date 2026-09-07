@@ -6,7 +6,7 @@ import { diskStorage } from 'multer'
 import { mkdirSync } from 'node:fs'
 import { extname, resolve } from 'node:path'
 import { SettingsStore } from './settings.store'
-import { VehiclesStore, type FuelType, type Vehicle, type VehicleFunction, type VehicleStatus } from './vehicles.store'
+import { VehiclesStore, type AcquisitionMode, type FuelType, type Vehicle, type VehicleFunction, type VehicleStatus } from './vehicles.store'
 
 class CreateVehicleDto {
   @IsString()
@@ -71,6 +71,10 @@ class CreateVehicleDto {
   @IsOptional()
   @IsBoolean()
   financed?: boolean
+
+  @IsOptional()
+  @IsIn(['cash', 'financed', 'leasing'])
+  acquisitionMode?: AcquisitionMode
 
   @IsOptional()
   @IsNumber()
@@ -172,6 +176,10 @@ class UpdateVehicleDto {
   financed?: boolean
 
   @IsOptional()
+  @IsIn(['cash', 'financed', 'leasing'])
+  acquisitionMode?: AcquisitionMode
+
+  @IsOptional()
   @IsNumber()
   @Min(0)
   downPaymentCs?: number
@@ -248,6 +256,16 @@ class MaintenanceDto {
   @IsNumber()
   @Min(0)
   cost?: number
+
+  @IsOptional()
+  @IsString()
+  provider?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  @Max(365)
+  durationDays?: number
 }
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
@@ -320,7 +338,7 @@ export class VehiclesController {
   @Post(':id/maintenance')
   @ApiOperation({ summary: 'Registrar mantenimiento (costo en C$) y pasar el vehículo a mantenimiento' })
   registerMaintenance(@Param('id') id: string, @Body() body: MaintenanceDto) {
-    return this.store.registerMaintenance(id, body.description, body.cost ?? 0)
+    return this.store.registerMaintenance(id, body.description, body.cost ?? 0, body.provider ?? '', body.durationDays ?? 0)
   }
 
   @Post(':id/image')

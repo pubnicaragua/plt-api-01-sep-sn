@@ -43,6 +43,7 @@ export interface Trip {
   paymentDate?: string
   paymentStatus?: 'Sin pagar' | 'Parcial' | 'Pagado'
   dueDate?: string
+  cancelReason?: string
 }
 
 export interface AppNotification {
@@ -71,6 +72,8 @@ export interface Driver {
   licenseExp?: string
   docNo?: string
   notes?: string
+  licenseCategories?: string
+  bloodType?: string
 }
 
 export interface Client {
@@ -86,7 +89,7 @@ export interface Client {
   existed?: boolean
   trips: number
   activeRequests: number
-  status: 'Activo' | 'Suspendido'
+  status: 'Activo' | 'Suspendido' | 'Inactivo'
   creditDays?: number
   dueDay?: number
   billingPeriod?: BillingPeriod
@@ -149,7 +152,7 @@ export interface HistoryEvent {
   id: string
   time: string
   date: string
-  type: 'Entrega' | 'Asignación' | 'Solicitud' | 'Incidencia' | 'Recogida' | 'Conexión'
+  type: string
   title: string
   detail: string
   color: 'blue' | 'mint' | 'gold' | 'red' | 'slate'
@@ -195,4 +198,5 @@ export interface ReportSummary {
     profitableTrips: number
     lossTrips: number
   }
+  packageVolumeByClient?: Array<{ client: string; packages: number; trips: number; weightKg: number }>
 }

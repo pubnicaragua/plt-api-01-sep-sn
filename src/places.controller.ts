@@ -51,6 +51,12 @@ const ALL_PLACES = [...MANAGUA_PLACES, ...NICA_CITIES.map((city) => ({
   longitude: city.longitude,
 }))]
 
+const normalize = (text: string) =>
+  text.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+
+const slugOf = (name: string) =>
+  normalize(name).replace(/[^a-z0-9]+/g, '-')
+
 @ApiTags('places')
 @Controller('places')
 export class PlacesController {
@@ -70,11 +76,11 @@ export class PlacesController {
   }
 
   private localSuggestions(term: string) {
-    const lower = term.toLowerCase().trim()
+    const lower = normalize(term)
     const tokens = lower.split(/\s+/).filter((token) => token.length >= 2)
     const scored = ALL_PLACES.map((place) => {
-      const nameLower = place.name.toLowerCase()
-      const zoneLower = place.zone.toLowerCase()
+      const nameLower = normalize(place.name)
+      const zoneLower = normalize(place.zone)
       const haystack = `${nameLower} ${zoneLower}`
       let score = -1
       if (nameLower === lower) score = 100
@@ -93,7 +99,7 @@ export class PlacesController {
       .sort((a, b) => b.score - a.score)
       .slice(0, 8)
       .map(({ place }) => ({
-        placeId: `mg-${place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`,
+        placeId: `mg-${slugOf(place.name)}`,
         description: `${place.name}, ${place.zone} · Nicaragua`,
         main: place.name,
         secondary: `${place.zone} · Nicaragua`,
@@ -168,9 +174,9 @@ export class PlacesController {
   async detail(@Query('place_id') placeId: string) {
     if (!placeId) return {}
     if (placeId.startsWith('mg-')) {
-      const name = placeId.slice(3).replaceAll('-', ' ')
-      const match = ALL_PLACES.find((place) => place.name.toLowerCase().replace(/[^a-z0-9]+/g, '-') === placeId.slice(3))
-      if (match) return { latitude: match.latitude, longitude: match.longitude, name }
+      const slug = placeId.slice(3)
+      const match = ALL_PLACES.find((place) => slugOf(place.name) === slug)
+      if (match) return { latitude: match.latitude, longitude: match.longitude, name: match.name }
     }
     const detail = await this.googlePlaceDetail(placeId)
     return detail ?? {}

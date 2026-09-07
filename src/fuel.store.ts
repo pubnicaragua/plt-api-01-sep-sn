@@ -13,6 +13,9 @@ export interface FuelRecord {
   odometerKm: number
   date: string
   note: string
+  evidence: string
+  driver?: string
+  source: string
   createdAt: number
 }
 
@@ -38,6 +41,9 @@ interface FuelRow {
   fuel_date: string
   note: string
   created_at: number
+  evidence: string
+  driver: string
+  source: string
 }
 
 @Injectable()
@@ -59,10 +65,17 @@ export class FuelStore implements OnModuleDestroy {
         odometer_km INTEGER NOT NULL DEFAULT 0,
         fuel_date TEXT NOT NULL DEFAULT '',
         note TEXT NOT NULL DEFAULT '',
+        evidence TEXT NOT NULL DEFAULT '',
+        driver TEXT NOT NULL DEFAULT '',
+        source TEXT NOT NULL DEFAULT 'panel',
         created_at INTEGER NOT NULL
       );
       CREATE TABLE IF NOT EXISTS incoex_meta (key TEXT PRIMARY KEY, value TEXT);
     `)
+    const columns = new Set((this.db.prepare('PRAGMA table_info(fuel_records)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+    if (!columns.has('evidence')) this.db.exec("ALTER TABLE fuel_records ADD COLUMN evidence TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('driver')) this.db.exec("ALTER TABLE fuel_records ADD COLUMN driver TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('source')) this.db.exec("ALTER TABLE fuel_records ADD COLUMN source TEXT NOT NULL DEFAULT 'panel'")
   }
 
   onModuleDestroy() { this.db.close() }
@@ -74,19 +87,29 @@ export class FuelStore implements OnModuleDestroy {
     return (rows as unknown as FuelRow[]).map((row) => this.map(row))
   }
 
-  add(input: { plate: string; liters: number; pricePerLiterCs?: number; odometerKm?: number; date?: string; note?: string }) {
+  add(input: { plate: string; liters: number; pricePerLiterCs?: number; odometerKm?: number; date?: string; note?: string; evidence: string; driver?: string; source?: string }) {
     const plate = (input.plate ?? '').trim()
     const vehicle = this.vehicles.list().find((candidate) => candidate.plate.toLowerCase() === plate.toLowerCase())
     if (!vehicle) throw new BadRequestException(`No existe el vehículo con placa ${plate}`)
     if (input.liters <= 0) throw new BadRequestException('Los litros deben ser mayores a cero')
+    const evidence = String(input.evidence ?? '').trim()
+    if (!evidence) throw new BadRequestException('La foto de odómetro o factura es obligatoria para registrar la recarga')
+    try {
+      const evidencePair = JSON.parse(evidence) as { odometer?: unknown; receipt?: unknown }
+      if (typeof evidencePair.odometer !== 'string' || !evidencePair.odometer.trim() || typeof evidencePair.receipt !== 'string' || !evidencePair.receipt.trim()) {
+        throw new Error('invalid evidence pair')
+      }
+    } catch {
+      throw new BadRequestException('La recarga requiere foto de odómetro y foto de factura')
+    }
     const liters = input.liters
     const price = input.pricePerLiterCs ?? vehicle.fuelPriceCs ?? 0
     const total = Number((liters * price).toFixed(2))
     const odometer = Math.max(0, Math.round(input.odometerKm ?? vehicle.odometerKm ?? 0))
     const date = input.date ?? new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(new Date())
     const id = `fuel-${String(Date.now()).slice(-8)}`
-    this.db.prepare('INSERT INTO fuel_records (id, plate, liters, price_per_liter_cs, total_cs, odometer_km, fuel_date, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, vehicle.plate, liters, price, total, odometer, date, input.note ?? '', Date.now())
+    this.db.prepare('INSERT INTO fuel_records (id, plate, liters, price_per_liter_cs, total_cs, odometer_km, fuel_date, note, evidence, driver, source, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, vehicle.plate, liters, price, total, odometer, date, input.note ?? '', evidence, input.driver ?? '', input.source ?? 'panel', Date.now())
     if (odometer > vehicle.odometerKm) this.db.prepare('UPDATE vehicles SET odometer_km = ? WHERE id = ?').run(odometer, vehicle.id)
     return this.get(id)
   }
@@ -171,6 +194,9 @@ export class FuelStore implements OnModuleDestroy {
       odometerKm: Number(row.odometer_km),
       date: String(row.fuel_date),
       note: String(row.note ?? ''),
+      evidence: String(row.evidence ?? ''),
+      driver: String(row.driver ?? ''),
+      source: String(row.source ?? 'panel'),
       createdAt: Number(row.created_at),
     }
   }

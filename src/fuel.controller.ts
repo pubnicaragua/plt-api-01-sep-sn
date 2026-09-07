@@ -1,6 +1,6 @@
 import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsNumber, IsOptional, IsString, Min } from 'class-validator'
+import { IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
 import { FuelStore } from './fuel.store'
 
 class AddFuelDto {
@@ -28,6 +28,18 @@ class AddFuelDto {
   @IsOptional()
   @IsString()
   note?: string
+
+  @IsString()
+  @IsNotEmpty()
+  evidence!: string
+
+  @IsOptional()
+  @IsString()
+  driver?: string
+
+  @IsOptional()
+  @IsString()
+  source?: string
 }
 
 @ApiTags('Combustible')

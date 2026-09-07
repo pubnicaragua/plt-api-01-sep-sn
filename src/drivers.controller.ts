@@ -1,6 +1,6 @@
 import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsBoolean, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator'
+import { IsBoolean, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class DriverLocationDto {
@@ -43,7 +43,7 @@ class CreateDriverDto {
   @IsString()
   phone?: string
 
-  @IsOptional()
+  @ValidateIf((_object, value) => value !== undefined && value !== '')
   @IsEmail()
   email?: string
 
@@ -74,6 +74,14 @@ class CreateDriverDto {
   @IsOptional()
   @IsString()
   notes?: string
+
+  @IsOptional()
+  @IsString()
+  licenseCategories?: string
+
+  @IsOptional()
+  @IsString()
+  bloodType?: string
 }
 
 class UpdateDriverDto {
@@ -104,6 +112,14 @@ class UpdateDriverDto {
   @IsOptional()
   @IsString()
   notes?: string
+
+  @IsOptional()
+  @IsString()
+  licenseCategories?: string
+
+  @IsOptional()
+  @IsString()
+  bloodType?: string
 }
 
 @ApiTags('drivers')
