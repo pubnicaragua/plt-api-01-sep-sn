@@ -817,10 +817,13 @@ getClientProfile(id: string) {
     return driver
   }
 
-  updateDriver(id: string, input: { vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
+  updateDriver(id: string, input: { name?: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
     const driver = this.drivers.find((candidate) => candidate.id === id)
     if (!driver) throw new NotFoundException('Conductor no encontrado')
     if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
+    if (input.name !== undefined) driver.name = input.name.trim()
+    if (input.phone !== undefined) driver.phone = input.phone.trim()
+    if (input.email !== undefined) driver.email = input.email.trim()
     if (input.vehicle !== undefined) driver.vehicle = input.vehicle
     if (input.plate !== undefined) driver.plate = input.plate
     if (input.external !== undefined) driver.external = Boolean(input.external)
@@ -830,8 +833,8 @@ getClientProfile(id: string) {
     if (input.notes !== undefined) driver.notes = input.notes
     if (input.licenseCategories !== undefined) driver.licenseCategories = input.licenseCategories
     if (input.bloodType !== undefined) driver.bloodType = input.bloodType
-    this.db.prepare('UPDATE drivers SET vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
-      .run(driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', id)
+    this.db.prepare('UPDATE drivers SET name = ?, phone = ?, email = ?, vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
+      .run(driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', id)
     return driver
   }
 

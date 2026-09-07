@@ -87,6 +87,18 @@ class CreateDriverDto {
 class UpdateDriverDto {
   @IsOptional()
   @IsString()
+  name?: string
+
+  @IsOptional()
+  @IsString()
+  phone?: string
+
+  @IsOptional()
+  @IsString()
+  email?: string
+
+  @IsOptional()
+  @IsString()
   vehicle?: string
 
   @IsOptional()
