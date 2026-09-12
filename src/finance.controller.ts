@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { FinanceStore } from './finance.store'
 
@@ -9,7 +9,7 @@ export class FinanceController {
 
   @Get('summary')
   @ApiOperation({ summary: 'Resumen de rentabilidad: ingresos, combustible, mantenimiento y margen por período.' })
-  getSummary() {
-    return this.store.getSummary()
+  getSummary(@Query('start') start?: string, @Query('end') end?: string) {
+    return this.store.getSummary(start, end)
   }
 }

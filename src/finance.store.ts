@@ -54,6 +54,14 @@ export class FinanceStore {
       .reduce((sum, record) => sum + record.cost, 0)
   }
 
+  private maintenanceCsBetween(start: Date, end: Date) {
+    const keys = new Set<string>()
+    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+      keys.add(new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short', year: 'numeric' }).format(cursor).toLowerCase())
+    }
+    return this.vehicles.maintenanceHistory().filter((record) => keys.has(record.date.toLowerCase())).reduce((sum, record) => sum + record.cost, 0)
+  }
+
   private tripsOfPeriod(days: number | null) {
     const keys = days === null
       ? null
@@ -61,11 +69,19 @@ export class FinanceStore {
     return this.operations.listTrips().filter((trip) => !keys || keys.has(trip.date))
   }
 
-  private summarize(trips: Trip[], days: number | null) {
+  private tripsBetween(start: Date, end: Date) {
+    const keys = new Set<string>()
+    for (const cursor = new Date(start); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+      keys.add(new Intl.DateTimeFormat('es-NI', { day: '2-digit', month: 'short' }).format(cursor))
+    }
+    return this.operations.listTrips().filter((trip) => keys.has(trip.date))
+  }
+
+  private summarize(trips: Trip[], days: number | null, maintenanceOverride?: number) {
     const completed = trips.filter((trip) => trip.status === 'Completado')
     const incomeCs = completed.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)
     const fuelCs = completed.reduce((sum, trip) => sum + this.fuelCsPerTrip(trip), 0)
-    const maintenanceCs = this.maintenanceCsSince(days)
+    const maintenanceCs = maintenanceOverride ?? this.maintenanceCsSince(days)
     const distanceKm = completed.reduce((sum, trip) => sum + (trip.distanceKm ?? 0), 0)
     const marginCs = incomeCs - fuelCs - maintenanceCs
     return {
@@ -81,8 +97,13 @@ export class FinanceStore {
     }
   }
 
-  getSummary() {
+  getSummary(startDate?: string, endDate?: string) {
     const all = this.operations.listTrips()
+    const start = startDate ? new Date(`${startDate}T00:00:00`) : undefined
+    const end = endDate ? new Date(`${endDate}T00:00:00`) : undefined
+    const range = start && end && Number.isFinite(start.getTime()) && Number.isFinite(end.getTime()) && start <= end
+      ? this.summarize(this.tripsBetween(start, end), null, this.maintenanceCsBetween(start, end))
+      : undefined
     const completed = all.filter((trip) => trip.status === 'Completado')
     const invoicing = all.filter((trip) => ['Asignado', 'En camino', 'En entrega'].includes(trip.status))
     const daily = []
@@ -121,6 +142,7 @@ export class FinanceStore {
         week: this.summarize(this.tripsOfPeriod(6), 6),
         month: this.summarize(this.tripsOfPeriod(29), 29),
         all: this.summarize(all, null),
+        ...(range ? { range } : {}),
       },
       invoicingCs: round2(invoicing.reduce((sum, trip) => sum + (trip.estimatedCostCs ?? 0), 0)),
       invoicingTrips: invoicing.length,
