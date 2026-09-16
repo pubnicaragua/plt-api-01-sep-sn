@@ -6,6 +6,12 @@ import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
 import { basename, extname, resolve } from 'node:path'
 
 const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp', '.gif']
+const EVIDENCE_EXTENSIONS = [
+  ...IMAGE_EXTENSIONS,
+  '.pdf',
+  '.xls',
+  '.xlsx',
+]
 
 const EVIDENCE_DIR = resolve(process.env.INCOEX_EVIDENCE_PATH ?? 'data/uploads/evidence')
 
@@ -25,15 +31,15 @@ export class UploadsController {
   }
 
   @Post('evidence')
-  @ApiOperation({ summary: 'Subir evidencia (foto) asociada a una incidencia o entrega' })
+  @ApiOperation({ summary: 'Subir evidencia (foto o documento) asociada a una incidencia o entrega' })
   @ApiConsumes('multipart/form-data')
-  @ApiBody({ description: 'Archivo de imagen de evidencia', schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiBody({ description: 'Archivo de evidencia JPG, PNG, PDF o Excel', schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @UseInterceptors(FileInterceptor('file'))
   uploadEvidence(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se recibió ninguna imagen')
     const extension = extname(file.originalname).toLowerCase()
-    if (!IMAGE_EXTENSIONS.includes(extension)) {
-      throw new BadRequestException('Formato no permitido. Usa JPG, PNG, WEBP o GIF')
+    if (!EVIDENCE_EXTENSIONS.includes(extension)) {
+      throw new BadRequestException('Formato no permitido. Usa JPG, PNG, PDF, XLS o XLSX')
     }
     mkdirSync(EVIDENCE_DIR, { recursive: true })
     const name = `ev-${Date.now()}${extension}`
