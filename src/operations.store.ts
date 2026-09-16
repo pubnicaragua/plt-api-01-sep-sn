@@ -582,11 +582,14 @@ export class OperationsStore implements OnModuleDestroy {
     }
   }
 
-  listTrips(status?: TripStatus, driver?: string) {
+  listTrips(status?: TripStatus, driver?: string, client?: string) {
     const driverFiltered = driver && driver !== 'undefined' && driver !== ''
       ? this.trips.filter((trip) => trip.driver.toLowerCase() === driver.toLowerCase())
       : this.trips
-    return status ? driverFiltered.filter((trip) => trip.status === status) : driverFiltered
+    const clientFiltered = client && client !== 'undefined' && client !== ''
+      ? driverFiltered.filter((trip) => trip.client.toLowerCase() === client.toLowerCase())
+      : driverFiltered
+    return status ? clientFiltered.filter((trip) => trip.status === status) : clientFiltered
   }
   listDrivers() { return this.drivers }
   listClients() { return this.clients }
@@ -1320,6 +1323,12 @@ getClientProfile(id: string) {
     const driverLocation = trip.driver && trip.driver !== 'Sin asignar'
       ? this.getDriverLocation(trip.driver)
       : undefined
+    const driver = this.drivers.find((candidate) => candidate.name.toLowerCase() === trip.driver.toLowerCase())
+    const currentLocationLabel = driverLocation
+      ? 'Ubicación actual del conductor'
+      : trip.status === 'En entrega'
+        ? trip.destination
+        : trip.origin
     return {
       tripId: trip.id,
       status: trip.status,
@@ -1329,6 +1338,10 @@ getClientProfile(id: string) {
       estimatedCostCs: trip.estimatedCostCs ?? 0,
       route,
       driverLocation,
+      driverVehicle: driver?.vehicle,
+      driverPlate: driver?.plate,
+      driverPhone: driver?.phone,
+      currentLocationLabel,
       shareUrl: `${process.env.WEB_TRACK_BASE_URL ?? 'https://plt-webadmin23-testing.vercel.app'}/track/${encodeURIComponent(trip.id)}`,
     }
   }
