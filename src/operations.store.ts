@@ -6,6 +6,7 @@ import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripS
 import { hashPassword, verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
+import { MapsRoutingService } from './maps-routing.service'
 
 function freshDate(daysAgo: number) {
   const date = new Date()
@@ -79,6 +80,7 @@ export class OperationsStore implements OnModuleDestroy {
   constructor(
     private readonly settings: SettingsStore,
     private readonly vehiclesStore: VehiclesStore,
+    private readonly mapsRouting: MapsRoutingService,
   ) {
     const databasePath = resolve(process.env.INCOEX_DB_PATH ?? 'data/incoex-local.sqlite')
     mkdirSync(dirname(databasePath), { recursive: true })
@@ -1388,25 +1390,35 @@ getClientProfile(id: string) {
     return trip
   }
 
-  getTracking(id: string) {
+  async getTracking(id: string) {
     const trip = this.getTrip(id)
-    const route = []
+    const driverLocation = trip.driver && trip.driver !== 'Sin asignar'
+      ? this.getDriverLocation(trip.driver)
+      : undefined
+    const fallbackRoute = []
     if (Number.isFinite(trip.originLat) && Number.isFinite(trip.originLng) && Number.isFinite(trip.destinationLat) && Number.isFinite(trip.destinationLng)) {
-      route.push(
+      fallbackRoute.push(
         { latitude: Number(trip.originLat), longitude: Number(trip.originLng), label: 'Recogida' },
         { latitude: (Number(trip.originLat) + Number(trip.destinationLat)) / 2, longitude: (Number(trip.originLng) + Number(trip.destinationLng)) / 2, label: 'En tránsito' },
         { latitude: Number(trip.destinationLat), longitude: Number(trip.destinationLng), label: 'Destino' },
       )
     } else {
-      route.push(
+      fallbackRoute.push(
         { latitude: 12.128, longitude: -86.264, label: 'Centro de distribución' },
         { latitude: 12.121, longitude: -86.253, label: 'En tránsito' },
         { latitude: 12.114, longitude: -86.244, label: 'Destino' },
       )
     }
-    const driverLocation = trip.driver && trip.driver !== 'Sin asignar'
-      ? this.getDriverLocation(trip.driver)
-      : undefined
+    const routingOrigin = driverLocation ?? (Number.isFinite(trip.originLat) && Number.isFinite(trip.originLng)
+      ? { latitude: Number(trip.originLat), longitude: Number(trip.originLng) }
+      : null)
+    const roadRoute = routingOrigin && Number.isFinite(trip.destinationLat) && Number.isFinite(trip.destinationLng)
+      ? await this.mapsRouting.getDrivingRoute(routingOrigin.latitude, routingOrigin.longitude, Number(trip.destinationLat), Number(trip.destinationLng))
+      : null
+    const route = roadRoute?.points.map((point, index) => ({
+      ...point,
+      label: index === 0 ? (driverLocation ? 'Conductor' : 'Recogida') : index === roadRoute.points.length - 1 ? 'Destino' : 'Ruta',
+    })) ?? fallbackRoute
     const driver = this.drivers.find((candidate) => candidate.name.toLowerCase() === trip.driver.toLowerCase())
     const currentLocationLabel = driverLocation
       ? 'Ubicación actual del conductor'
@@ -1421,6 +1433,9 @@ getClientProfile(id: string) {
       distanceKm: trip.distanceKm ?? 0,
       estimatedCostCs: trip.estimatedCostCs ?? 0,
       route,
+      routeProvider: roadRoute?.provider ?? 'fallback',
+      routeDistanceKm: roadRoute?.distanceKm ?? trip.distanceKm ?? 0,
+      routeDurationSeconds: roadRoute?.durationSeconds ?? 0,
       driverLocation,
       transport: trip.transport,
       driverVehicle: driver?.vehicle,
@@ -1476,6 +1491,21 @@ getClientProfile(id: string) {
       }
     }
     trip.status = status
+    if (status === 'Completado' && trip.driver !== 'Sin asignar') {
+      const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
+      if (driver) {
+        driver.status = 'Disponible'
+        driver.route = 'Sin viaje activo'
+        this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
+      }
+    } else if (status === 'En entrega' && trip.driver !== 'Sin asignar') {
+      const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
+      if (driver) {
+        driver.status = 'En entrega'
+        driver.route = `${trip.origin} → ${trip.destination}`
+        this.db.prepare('UPDATE drivers SET status = ?, route = ? WHERE id = ?').run(driver.status, driver.route, driver.id)
+      }
+    }
     if (status === 'Cancelado' || status === 'Anulado') trip.cancelReason = normalizedReason
     this.persistTrip(trip)
     const historyType = status === 'Cancelado' ? 'Cancelación' : status === 'Anulado' ? 'Anulación' : 'Cambio de estado'
