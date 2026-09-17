@@ -27,6 +27,7 @@ export interface Trip {
   costCs?: number
   profitCs?: number
   serviceType?: 'Urbano' | 'Express' | 'Programado'
+  transport?: 'Moto' | 'Vehículo' | 'Camión'
   contactName?: string
   contactPhone?: string
   pickupTime?: string

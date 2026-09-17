@@ -3,7 +3,7 @@ import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripStatus } from './domain'
-import { verifyPassword } from './users.store'
+import { hashPassword, verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
 
@@ -18,6 +18,24 @@ const ES_MONTHS: Record<string, string> = {
   jul: '07', ago: '08', sep: '09', sept: '09', oct: '10', nov: '11', dic: '12',
   enero: '01', febrero: '02', marzo: '03', abril: '04', mayo: '05', junio: '06',
   julio: '07', agosto: '08', septiembre: '09', octubre: '10', noviembre: '11', diciembre: '12',
+}
+
+const LOGISTICS_SERVICE_FEE_CS = 15
+
+function parseManaguaSchedule(dateText: string | undefined, timeText: string | undefined): Date | null {
+  const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? '').trim())
+  const timeMatch = /^(\d{2}):(\d{2})$/.exec(String(timeText ?? '00:00').trim())
+  if (!dateMatch || !timeMatch) return null
+  const year = Number(dateMatch[1])
+  const month = Number(dateMatch[2])
+  const day = Number(dateMatch[3])
+  const hour = Number(timeMatch[1])
+  const minute = Number(timeMatch[2])
+  if (month < 1 || month > 12 || day < 1 || day > 31 || hour > 23 || minute > 59) return null
+  const calendarDate = new Date(Date.UTC(year, month - 1, day))
+  if (calendarDate.getUTCFullYear() !== year || calendarDate.getUTCMonth() !== month - 1 || calendarDate.getUTCDate() !== day) return null
+  // Nicaragua uses UTC-06:00 without seasonal clock changes.
+  return new Date(Date.UTC(year, month - 1, day, hour + 6, minute))
 }
 
 function monthKeyOf(dateText: string | undefined): string {
@@ -175,6 +193,7 @@ export class OperationsStore implements OnModuleDestroy {
     ['distance_km', 'REAL NOT NULL DEFAULT 0'],
     ['estimated_cost_cs', 'REAL NOT NULL DEFAULT 0'],
     ['service_type', 'TEXT NOT NULL DEFAULT \'Urbano\''],
+    ['transport', 'TEXT NOT NULL DEFAULT \'Vehículo\''],
     ['contact_name', 'TEXT NOT NULL DEFAULT \'\''],
     ['contact_phone', 'TEXT NOT NULL DEFAULT \'\''],
     ['pickup_time', 'TEXT NOT NULL DEFAULT \'\''],
@@ -533,6 +552,7 @@ export class OperationsStore implements OnModuleDestroy {
       costCs: row.cost_cs === null || row.cost_cs === undefined ? 0 : Number(row.cost_cs),
       profitCs: Number((Number(row.estimated_cost_cs ?? 0) - Number(row.cost_cs ?? 0)).toFixed(2)),
       serviceType: (row.service_type?.toString() ?? 'Urbano') as Trip['serviceType'],
+      transport: (row.transport?.toString() ?? 'Vehículo') as Trip['transport'],
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
       pickupTime: row.pickup_time?.toString(),
@@ -558,6 +578,7 @@ export class OperationsStore implements OnModuleDestroy {
   private persistTrip(trip: Trip) {
     const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
     update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
+    this.db.prepare('UPDATE trips SET transport = ? WHERE id = ?').run(trip.transport ?? 'Vehículo', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -740,9 +761,11 @@ getClientProfile(id: string) {
     }
   }
 
-  updateClient(id: string, input: { phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string; status?: Client['status'] }) {
+  updateClient(id: string, input: { name?: string; phone?: string; email?: string; address?: string; contact?: string; taxId?: string; notes?: string; creditDays?: number; dueDay?: number; billingPeriod?: string; billingCustomDays?: number; billingCutDay?: number; billingCutTime?: string; billingActive?: boolean; whatsapp?: string; status?: Client['status'] }) {
     const client = this.clients.find((candidate) => candidate.id === id)
     if (!client) throw new NotFoundException('Cliente no encontrado')
+    const previousEmail = client.email.trim().toLowerCase()
+    if (input.name !== undefined && input.name.trim()) client.name = input.name.trim()
     if (input.phone !== undefined) client.phone = input.phone
     if (input.email !== undefined) client.email = input.email.trim().toLowerCase()
     if (input.address !== undefined) client.address = input.address
@@ -758,8 +781,12 @@ getClientProfile(id: string) {
     if (input.billingActive !== undefined) client.billingActive = Boolean(input.billingActive)
     if (input.whatsapp !== undefined) client.whatsapp = String(input.whatsapp).replace(/[^\d]/g, '')
     if (input.status !== undefined) client.status = input.status
-    this.db.prepare('UPDATE clients SET phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ?, status = ? WHERE id = ?')
-      .run(client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.billingPeriod ?? 'semanal', client.billingCustomDays ?? 7, client.billingCutDay ?? 0, client.billingCutTime ?? '22:00', client.billingActive ? 1 : 0, client.whatsapp ?? '', client.status, id)
+    this.db.prepare('UPDATE clients SET name = ?, phone = ?, email = ?, address = ?, contact = ?, tax_id = ?, notes = ?, credit_days = ?, due_day = ?, billing_period = ?, billing_custom_days = ?, billing_cut_day = ?, billing_cut_time = ?, billing_active = ?, whatsapp = ?, status = ? WHERE id = ?')
+      .run(client.name, client.phone, client.email, client.address ?? '', client.contact ?? '', client.taxId ?? '', client.notes ?? '', client.creditDays ?? 0, client.dueDay ?? 0, client.billingPeriod ?? 'semanal', client.billingCustomDays ?? 7, client.billingCutDay ?? 0, client.billingCutTime ?? '22:00', client.billingActive ? 1 : 0, client.whatsapp ?? '', client.status, id)
+    if (previousEmail) {
+      this.db.prepare('UPDATE app_users SET email = ?, phone = ? WHERE lower(email) = ?')
+        .run(client.email, client.phone, previousEmail)
+    }
     return client
   }
 
@@ -1095,9 +1122,9 @@ getClientProfile(id: string) {
     const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
 
     if (input.isScheduled || input.serviceType === 'Programado') {
-      const target = new Date(`${input.scheduledDate}T${input.scheduledTime ?? '00:00'}`)
+      const target = parseManaguaSchedule(input.scheduledDate, input.scheduledTime)
       const now = new Date()
-      if (Number.isNaN(target.getTime())) {
+      if (!target || Number.isNaN(target.getTime())) {
         throw new BadRequestException('La fecha u hora programada es inválida')
       }
       if (target.getTime() < now.getTime() - 60 * 1000) {
@@ -1115,7 +1142,7 @@ getClientProfile(id: string) {
       : input.serviceType === 'Programado'
         ? settings.scheduledSurchargePct
         : 0
-    const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs
+    const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
     const estimatedCostCs = Number((baseCost * (1 + surchargePct / 100)).toFixed(2))
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
@@ -1141,6 +1168,7 @@ getClientProfile(id: string) {
       distanceKm,
       estimatedCostCs,
       serviceType: input.serviceType ?? 'Urbano',
+      transport: input.transport ?? 'Vehículo',
       contactName: input.contactName,
       contactPhone: input.contactPhone,
       originRefs: input.originRefs,
@@ -1156,6 +1184,7 @@ getClientProfile(id: string) {
     this.trips.unshift(trip)
     const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0)
+    this.db.prepare('UPDATE trips SET transport = ? WHERE id = ?').run(trip.transport ?? 'Vehículo', trip.id)
     this.recordHistory('Solicitud', 'Nueva solicitud recibida', `Viaje ${trip.id} · ${trip.client} · ${trip.packages} paquetes`, 'blue')
     if (input.autoAssign) {
       this.assignAutomatically(trip)
@@ -1219,6 +1248,9 @@ getClientProfile(id: string) {
       'conductor@incoex.com.ni': 'drv-006',
     }
     const effectiveRole = panelUser?.role ?? input.role
+    const clientAccount = this.clients.find((candidate) =>
+      candidate.email.trim().toLowerCase() === normalized,
+    )
     const driverId = effectiveRole === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
     const driver = driverId ? this.drivers.find((candidate) => candidate.id === driverId) : undefined
     const userId = panelUser?.id ?? driver?.id ?? (effectiveRole === 'company' ? 'cli-001' : 'admin-001')
@@ -1240,7 +1272,8 @@ getClientProfile(id: string) {
         email: panelUser?.email ?? input.email,
         role: effectiveRole,
         roleName: effectiveRole === 'admin' ? 'Superadministrador' : effectiveRole === 'management' ? 'Gerencia' : effectiveRole === 'operations' ? 'Operaciones' : effectiveRole === 'finance' ? 'Finanzas' : effectiveRole === 'support' ? 'Soporte' : effectiveRole === 'driver' ? 'Conductor' : effectiveRole === 'corporate' ? 'Usuario corporativo' : effectiveRole === 'store' ? 'Tienda o recepción' : effectiveRole,
-        displayName: panelUser?.name ?? driver?.name ?? (effectiveRole === 'driver' ? 'Carlos Díaz' : effectiveRole === 'company' ? 'Mario Martínez' : 'Mario Martínez'),
+        displayName: panelUser?.name ?? driver?.name ?? (effectiveRole === 'driver' ? 'Carlos Díaz' : effectiveRole === 'company' ? 'Usuario corporativo' : 'Usuario INCOEX'),
+        companyName: clientAccount?.name,
         vehicle: driver?.vehicle,
         plate: driver?.plate,
         phone: panelUser?.phone ?? driver?.phone,
@@ -1265,18 +1298,69 @@ getClientProfile(id: string) {
     return { id: userId, sessionState: 'Cerrada' }
   }
 
-  register(input: { name: string; companyName: string; email: string; role: 'company' | 'driver' }) {
+  register(input: {
+    name: string
+    companyName: string
+    email: string
+    password: string
+    role: 'company' | 'driver'
+    phone?: string
+    identification?: string
+    taxId?: string
+    documentName?: string
+  }) {
+    const name = input.name.trim()
+    const companyName = input.companyName.trim()
+    const email = input.email.trim().toLowerCase()
+    const phone = String(input.phone ?? '').trim()
+    const identification = String(input.identification ?? '').trim()
+    const taxId = String(input.taxId ?? '').trim()
+    if (!name || !companyName || !email || !input.password) {
+      throw new BadRequestException('Completa los datos requeridos del registro')
+    }
+    const existing = this.db.prepare('SELECT id FROM app_users WHERE lower(email) = ?').get(email)
+    if (existing) throw new BadRequestException('Ya existe una cuenta con ese correo electrónico')
+
+    const client = input.role === 'company'
+      ? this.createClient({
+          name: companyName,
+          type: companyName,
+          phone,
+          email,
+          contact: name,
+          taxId,
+          notes: [
+            identification ? `Cédula: ${identification}` : '',
+            input.documentName ? `Matrícula de Alcaldía: ${input.documentName}` : '',
+          ].filter(Boolean).join(' · '),
+        })
+      : undefined
+    const role = input.role === 'company' ? 'corporate' : 'driver'
+    const id = `usr-${String(Date.now()).slice(-8)}`
+    this.db.prepare('INSERT INTO app_users (id, name, email, phone, role, status, last_login, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, name, email, phone, role, 'Activo', 'Sin accesos registrados', hashPassword(input.password))
+    const accessToken = this.issueSession(id, email, role)
     return {
-      accessToken: 'prototype-token-replace-before-production',
+      accessToken,
       user: {
-        id: `${input.role}-${Date.now()}`,
-        email: input.email,
-        role: input.role,
-        displayName: input.name,
+        id,
+        email,
+        role,
+        roleName: role === 'corporate' ? 'Usuario corporativo' : 'Conductor',
+        displayName: name,
+        companyName: client?.name,
+        phone,
       },
       profile: {
-        name: input.name,
-        companyName: input.companyName,
+        id,
+        clientId: client?.id,
+        name,
+        companyName,
+        email,
+        phone,
+        identification,
+        taxId,
+        documentName: input.documentName ?? '',
       },
     }
   }
@@ -1338,6 +1422,7 @@ getClientProfile(id: string) {
       estimatedCostCs: trip.estimatedCostCs ?? 0,
       route,
       driverLocation,
+      transport: trip.transport,
       driverVehicle: driver?.vehicle,
       driverPlate: driver?.plate,
       driverPhone: driver?.phone,

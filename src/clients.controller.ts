@@ -75,6 +75,11 @@ class CreateClientDto {
 
 class UpdateClientDto {
   @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  name?: string
+
+  @IsOptional()
   @IsIn(['Activo', 'Suspendido', 'Inactivo'])
   status?: 'Activo' | 'Suspendido' | 'Inactivo'
   @IsOptional()

@@ -1,4 +1,4 @@
-import { IsEmail, IsIn, IsNotEmpty, IsString, MinLength } from 'class-validator'
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
 
 export class RegisterDto {
   @IsString()
@@ -18,4 +18,20 @@ export class RegisterDto {
 
   @IsIn(['company', 'driver'])
   role!: 'company' | 'driver'
+
+  @IsOptional()
+  @IsString()
+  phone?: string
+
+  @IsOptional()
+  @IsString()
+  identification?: string
+
+  @IsOptional()
+  @IsString()
+  taxId?: string
+
+  @IsOptional()
+  @IsString()
+  documentName?: string
 }

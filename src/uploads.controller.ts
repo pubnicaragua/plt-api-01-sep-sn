@@ -34,7 +34,7 @@ export class UploadsController {
   @ApiOperation({ summary: 'Subir evidencia (foto o documento) asociada a una incidencia o entrega' })
   @ApiConsumes('multipart/form-data')
   @ApiBody({ description: 'Archivo de evidencia JPG, PNG, PDF o Excel', schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
   uploadEvidence(@UploadedFile() file?: Express.Multer.File) {
     if (!file) throw new BadRequestException('No se recibió ninguna imagen')
     const extension = extname(file.originalname).toLowerCase()
@@ -51,7 +51,7 @@ export class UploadsController {
   @ApiOperation({ summary: 'Servir una evidencia subida' })
   serveEvidence(@Param('file') file: string, @Res() res: Response) {
     const safeName = basename(file)
-    if (!IMAGE_EXTENSIONS.some((extension) => safeName.toLowerCase().endsWith(extension))) {
+    if (!EVIDENCE_EXTENSIONS.some((extension) => safeName.toLowerCase().endsWith(extension))) {
       throw new NotFoundException('Evidencia no encontrada')
     }
     const filePath = resolve(EVIDENCE_DIR, safeName)
