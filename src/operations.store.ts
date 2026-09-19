@@ -22,6 +22,15 @@ const ES_MONTHS: Record<string, string> = {
 
 const LOGISTICS_SERVICE_FEE_CS = 15
 
+// Las tarifas finales se cobran en córdobas enteros y se presentan en
+// múltiplos de cinco. Los valores cuya unidad es 7 suben al siguiente 10
+// para conservar la regla comercial solicitada (857 -> 860).
+function roundFareCs(value: number) {
+  const whole = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+  if (whole % 10 === 7) return (Math.floor(whole / 10) + 1) * 10
+  return Math.round(whole / 5) * 5
+}
+
 function parseManaguaSchedule(dateText: string | undefined, timeText: string | undefined): Date | null {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? '').trim())
   const timeMatch = /^(\d{2}):(\d{2})$/.exec(String(timeText ?? '00:00').trim())
@@ -319,7 +328,8 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('blood_type')) this.db.exec("ALTER TABLE drivers ADD COLUMN blood_type TEXT NOT NULL DEFAULT ''")
   }
 
-  private migrateClients() {    const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
+  private migrateClients() {
+    const columns = new Set((this.db.prepare('PRAGMA table_info(clients)').all() as unknown as Array<{ name: string }>).map((column) => column.name))
     if (!columns.has('address')) this.db.exec("ALTER TABLE clients ADD COLUMN address TEXT NOT NULL DEFAULT ''")
     if (!columns.has('contact')) this.db.exec("ALTER TABLE clients ADD COLUMN contact TEXT NOT NULL DEFAULT ''")
     if (!columns.has('tax_id')) this.db.exec("ALTER TABLE clients ADD COLUMN tax_id TEXT NOT NULL DEFAULT ''")
@@ -620,7 +630,7 @@ export class OperationsStore implements OnModuleDestroy {
     return rows.map((row) => ({ id: String(row.id), time: String(row.event_time), date: String(row.event_date), type: String(row.type), title: String(row.title), detail: String(row.detail), color: row.color as HistoryEvent['color'] }))
   }
 
-checkSession(token: string) {
+  checkSession(token: string) {
     const session = this.sessions.get(token)
     if (session) {
       const row = this.db.prepare('SELECT id, name, role, session_state FROM app_users WHERE id = ?').get(session.userId) as unknown as Record<string, unknown> | undefined
@@ -638,7 +648,7 @@ checkSession(token: string) {
     return { valid: true, name: String(row.name ?? ''), role: String(row.role ?? ''), sessionState: state }
   }
 
-getClientProfile(id: string) {
+  getClientProfile(id: string) {
     const client = this.clients.find((candidate) => candidate.id === id || candidate.name.trim().toLowerCase() === id.trim().toLowerCase())
     if (!client) throw new NotFoundException('Cliente no encontrado')
     const trips = this.trips.filter((trip) => trip.client.trim().toLowerCase() === client.name.trim().toLowerCase())
@@ -706,7 +716,7 @@ getClientProfile(id: string) {
         serviceType: trip.serviceType ?? 'Urbano',
         costCs: trip.estimatedCostCs ?? 0,
         paymentStatus: trip.paymentStatus ?? 'Sin pagar',
-})),
+      })),
     }
   }
 
@@ -1143,7 +1153,7 @@ getClientProfile(id: string) {
         ? settings.scheduledSurchargePct
         : 0
     const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
-    const estimatedCostCs = Number((baseCost * (1 + surchargePct / 100)).toFixed(2))
+    const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100))
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
       ? ((clientAccount.creditDays ?? 0) > 0 ? formatDateOffset(clientAccount.creditDays!) : collectOnDay(clientAccount.dueDay!))
@@ -1192,7 +1202,8 @@ getClientProfile(id: string) {
     return trip
   }
 
-  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {    const trip = this.getTrip(id)
+  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {
+    const trip = this.getTrip(id)
     if (input.method !== undefined) trip.paymentMethod = input.method
     if (input.ref !== undefined) trip.paymentRef = input.ref
     if (input.amount !== undefined) trip.paymentAmount = Math.max(0, Number(input.amount) || 0)
@@ -1208,7 +1219,7 @@ getClientProfile(id: string) {
 
   updateTripFare(id: string, amount: number) {
     const trip = this.getTrip(id)
-    trip.estimatedCostCs = Math.max(0, Number(amount) || 0)
+    trip.estimatedCostCs = roundFareCs(Number(amount) || 0)
     const expected = trip.estimatedCostCs
     if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
     else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
@@ -1323,17 +1334,17 @@ getClientProfile(id: string) {
 
     const client = input.role === 'company'
       ? this.createClient({
-          name: companyName,
-          type: companyName,
-          phone,
-          email,
-          contact: name,
-          taxId,
-          notes: [
-            identification ? `Cédula: ${identification}` : '',
-            input.documentName ? `Matrícula de Alcaldía: ${input.documentName}` : '',
-          ].filter(Boolean).join(' · '),
-        })
+        name: companyName,
+        type: companyName,
+        phone,
+        email,
+        contact: name,
+        taxId,
+        notes: [
+          identification ? `Cédula: ${identification}` : '',
+          input.documentName ? `Matrícula de Alcaldía: ${input.documentName}` : '',
+        ].filter(Boolean).join(' · '),
+      })
       : undefined
     const role = input.role === 'company' ? 'corporate' : 'driver'
     const id = `usr-${String(Date.now()).slice(-8)}`
