@@ -384,11 +384,19 @@ export class OperationsStore implements OnModuleDestroy {
 
   private loadIncidents() {
     const rows = this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC').all() as unknown as Array<Record<string, unknown>>
-    return rows.map((row) => ({
+    return rows.map((row) => {
+      const trip = String(row.trip ?? '').trim()
+      const driver = String(row.driver ?? '').trim()
+      const isGeneral = row.scope === 'general' || (
+        row.scope !== 'trip' && !trip && !driver
+      ) || (
+        row.scope === 'trip' && ['', '—', '-', 'General'].includes(trip) && ['', '—', '-', 'Todos los conductores'].includes(driver)
+      )
+      return {
       id: String(row.id),
-      scope: row.scope === 'general' ? 'general' as const : 'trip' as const,
-      trip: String(row.trip),
-      driver: String(row.driver),
+      scope: isGeneral ? 'general' as const : 'trip' as const,
+      trip,
+      driver,
       client: String(row.client),
       type: String(row.type),
       priority: row.priority as Incident['priority'],
@@ -398,7 +406,8 @@ export class OperationsStore implements OnModuleDestroy {
       longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
       evidence: row.evidence?.toString() || undefined,
       createdAt: Number(row.created_at ?? 0),
-    }))
+      }
+    })
   }
 
   private loadClients() {
