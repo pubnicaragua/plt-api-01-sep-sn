@@ -137,6 +137,7 @@ export interface Corte {
 
 export interface Incident {
   id: string
+  scope?: 'general' | 'trip'
   trip: string
   driver: string
   client: string
@@ -147,6 +148,7 @@ export interface Incident {
   latitude?: number
   longitude?: number
   evidence?: string
+  createdAt?: number
 }
 
 export interface HistoryEvent {

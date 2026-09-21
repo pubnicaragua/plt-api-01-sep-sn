@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsNumber, IsObject, IsOptional, IsString, Min } from 'class-validator'
 import { SettingsStore, type SettingsPatch, type VehicleRate } from './settings.store'
+import { TarifasStore } from './tarifas.store'
 
 class VehicleRateDto implements VehicleRate {
   @IsNumber()
@@ -73,12 +74,12 @@ class UpdateSettingsDto implements SettingsPatch {
 @ApiTags('settings')
 @Controller('settings')
 export class SettingsController {
-  constructor(private readonly store: SettingsStore) {}
+  constructor(private readonly store: SettingsStore, private readonly tarifas: TarifasStore) {}
 
   @Get()
   @ApiOperation({ summary: 'Configuración operativa: tasa de cambio del dólar y tarifas en córdobas (C$)' })
   get() {
-    return this.store.get()
+    return { ...this.store.get(), fareRoundingCs: this.tarifas.getSettings().roundingCs }
   }
 
   @Patch()

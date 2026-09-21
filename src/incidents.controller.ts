@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common'
+import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator'
 import type { IncidentPriority, IncidentStatus } from './domain'
@@ -11,11 +11,14 @@ class UpdateIncidentStatusDto {
 
 class UpdateIncidentEvidenceDto {
   @IsString()
-  @IsNotEmpty()
   evidence!: string
 }
 
 class CreateIncidentDto {
+  @IsOptional()
+  @IsIn(['general', 'trip'])
+  scope?: 'general' | 'trip'
+
   @IsString()
   @IsNotEmpty()
   type!: string
@@ -58,6 +61,12 @@ class CreateIncidentDto {
 export class IncidentsController {
   constructor(private readonly store: OperationsStore) {}
 
+  @Get('notifications')
+  @ApiOperation({ summary: 'Incidencias recientes destinadas a la sesión móvil actual' })
+  notifications(@Headers('authorization') authorization?: string) {
+    return this.store.listMobileIncidentNotifications(authorization)
+  }
+
   @Get()
   @ApiOperation({ summary: 'Incidencias de la operación' })
   list() {
@@ -68,6 +77,7 @@ export class IncidentsController {
   @ApiOperation({ summary: 'Reportar una incidencia nueva con descripción, GPS y evidencia (abierta por defecto)' })
   create(@Body() body: CreateIncidentDto) {
     return this.store.createIncident({
+      scope: body.scope,
       trip: body.trip ?? '—',
       driver: body.driver ?? '—',
       client: body.client,

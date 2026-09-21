@@ -7,6 +7,7 @@ import { hashPassword, verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
 import { MapsRoutingService } from './maps-routing.service'
+import { TarifasStore, roundFareCs } from './tarifas.store'
 
 function freshDate(daysAgo: number) {
   const date = new Date()
@@ -22,15 +23,6 @@ const ES_MONTHS: Record<string, string> = {
 }
 
 const LOGISTICS_SERVICE_FEE_CS = 15
-
-// Las tarifas finales se cobran en córdobas enteros y se presentan en
-// múltiplos de cinco. Los valores cuya unidad es 7 suben al siguiente 10
-// para conservar la regla comercial solicitada (857 -> 860).
-function roundFareCs(value: number) {
-  const whole = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
-  if (whole % 10 === 7) return (Math.floor(whole / 10) + 1) * 10
-  return Math.round(whole / 5) * 5
-}
 
 function parseManaguaSchedule(dateText: string | undefined, timeText: string | undefined): Date | null {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? '').trim())
@@ -90,6 +82,7 @@ export class OperationsStore implements OnModuleDestroy {
     private readonly settings: SettingsStore,
     private readonly vehiclesStore: VehiclesStore,
     private readonly mapsRouting: MapsRoutingService,
+    private readonly tarifas: TarifasStore,
   ) {
     const databasePath = resolve(process.env.INCOEX_DB_PATH ?? 'data/incoex-local.sqlite')
     mkdirSync(dirname(databasePath), { recursive: true })
@@ -366,6 +359,8 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('latitude')) this.db.exec('ALTER TABLE incidents ADD COLUMN latitude REAL')
     if (!columns.has('longitude')) this.db.exec('ALTER TABLE incidents ADD COLUMN longitude REAL')
     if (!columns.has('evidence')) this.db.exec("ALTER TABLE incidents ADD COLUMN evidence TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('scope')) this.db.exec("ALTER TABLE incidents ADD COLUMN scope TEXT NOT NULL DEFAULT 'trip'")
+    if (!columns.has('created_at')) this.db.exec('ALTER TABLE incidents ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0')
   }
 
   private dedupeClients() {
@@ -391,6 +386,7 @@ export class OperationsStore implements OnModuleDestroy {
     const rows = this.db.prepare('SELECT * FROM incidents ORDER BY rowid DESC').all() as unknown as Array<Record<string, unknown>>
     return rows.map((row) => ({
       id: String(row.id),
+      scope: row.scope === 'general' ? 'general' as const : 'trip' as const,
       trip: String(row.trip),
       driver: String(row.driver),
       client: String(row.client),
@@ -401,6 +397,7 @@ export class OperationsStore implements OnModuleDestroy {
       latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
       longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
       evidence: row.evidence?.toString() || undefined,
+      createdAt: Number(row.created_at ?? 0),
     }))
   }
 
@@ -627,6 +624,35 @@ export class OperationsStore implements OnModuleDestroy {
   listDrivers() { return this.drivers }
   listClients() { return this.clients }
   listIncidents() { return this.incidents }
+
+  listMobileIncidentNotifications(authorization?: string) {
+    const token = /^Bearer\s+(.+)$/i.exec(authorization ?? '')?.[1]?.trim()
+    const session = token ? this.sessions.get(token) : undefined
+    if (!token || !session || !this.checkSession(token).valid) {
+      throw new UnauthorizedException('Inicia sesión para consultar las notificaciones')
+    }
+
+    const email = session.email.trim().toLowerCase()
+    const demoDriverIds: Record<string, string> = {
+      'carlos.diaz@incoex.com.ni': 'drv-006',
+      'jose.martinez@incoex.com.ni': 'drv-007',
+      'conductor@incoex.com.ni': 'drv-006',
+    }
+    const account = this.db.prepare('SELECT name FROM app_users WHERE id = ?').get(session.userId) as unknown as { name?: string } | undefined
+    const sessionName = account?.name?.trim().toLowerCase() ?? ''
+    const driver = this.drivers.find((candidate) => candidate.email?.trim().toLowerCase() === email)
+      ?? this.drivers.find((candidate) => candidate.id === session.userId || candidate.id === demoDriverIds[email])
+      ?? this.drivers.find((candidate) => candidate.name.trim().toLowerCase() === sessionName)
+    const client = this.clients.find((candidate) => candidate.email.trim().toLowerCase() === email)
+      ?? this.clients.find((candidate) => candidate.name.trim().toLowerCase() === sessionName)
+    return this.incidents.filter((incident) => {
+      if (!incident.createdAt || incident.status === 'Resuelta') return false
+      if (incident.scope === 'general') return true
+      const forDriver = driver && incident.driver.trim().toLowerCase() === driver.name.trim().toLowerCase()
+      const forClient = client && incident.client.trim().toLowerCase() === client.name.trim().toLowerCase()
+      return Boolean(forDriver || forClient)
+    })
+  }
   listHistory() {
     const rows = this.db.prepare('SELECT id, event_time, event_date, type, title, detail, color FROM history_events ORDER BY created_at DESC LIMIT 500').all() as unknown as Array<Record<string, unknown>>
     return rows.map((row) => ({ id: String(row.id), time: String(row.event_time), date: String(row.event_date), type: String(row.type), title: String(row.title), detail: String(row.detail), color: row.color as HistoryEvent['color'] }))
@@ -908,9 +934,11 @@ export class OperationsStore implements OnModuleDestroy {
     return { deleted: normalized }
   }
 
-  createIncident(input: { trip: string; driver: string; client: string; type: string; priority: Incident['priority']; description?: string; latitude?: number; longitude?: number; evidence?: string }) {
+  createIncident(input: { scope?: Incident['scope']; trip: string; driver: string; client: string; type: string; priority: Incident['priority']; description?: string; latitude?: number; longitude?: number; evidence?: string }) {
+    const createdAt = Date.now()
     const incident: Incident = {
       id: `INC-${String(Date.now()).slice(-6)}`,
+      scope: input.scope ?? 'trip',
       trip: input.trip,
       driver: input.driver,
       client: input.client,
@@ -921,10 +949,11 @@ export class OperationsStore implements OnModuleDestroy {
       latitude: input.latitude,
       longitude: input.longitude,
       evidence: input.evidence,
+      createdAt,
     }
     this.incidents.unshift(incident)
-    this.db.prepare('INSERT INTO incidents (id, trip, driver, client, type, priority, status, description, latitude, longitude, evidence) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status, incident.description ?? '', incident.latitude ?? null, incident.longitude ?? null, incident.evidence ?? '')
+    this.db.prepare('INSERT INTO incidents (id, trip, driver, client, type, priority, status, description, latitude, longitude, evidence, scope, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(incident.id, incident.trip, incident.driver, incident.client, incident.type, incident.priority, incident.status, incident.description ?? '', incident.latitude ?? null, incident.longitude ?? null, incident.evidence ?? '', incident.scope ?? 'trip', incident.createdAt ?? Date.now())
     this.recordHistory('Incidencia', 'Incidencia reportada', `${incident.id} · ${incident.trip} · ${incident.type}`, 'gold')
     return incident
   }
@@ -941,8 +970,9 @@ export class OperationsStore implements OnModuleDestroy {
   updateIncidentEvidence(id: string, evidence: string) {
     const incident = this.incidents.find((candidate) => candidate.id === id)
     if (!incident) throw new NotFoundException('Incidencia no encontrada')
-    incident.evidence = evidence
-    this.db.prepare('UPDATE incidents SET evidence = ? WHERE id = ?').run(evidence, id)
+    const normalizedEvidence = evidence.trim()
+    incident.evidence = normalizedEvidence || undefined
+    this.db.prepare('UPDATE incidents SET evidence = ? WHERE id = ?').run(normalizedEvidence, id)
     return incident
   }
 
@@ -1155,7 +1185,7 @@ export class OperationsStore implements OnModuleDestroy {
         ? settings.scheduledSurchargePct
         : 0
     const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
-    const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100))
+    const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100), this.tarifas.getSettings().roundingCs)
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
       ? ((clientAccount.creditDays ?? 0) > 0 ? formatDateOffset(clientAccount.creditDays!) : collectOnDay(clientAccount.dueDay!))
@@ -1221,7 +1251,7 @@ export class OperationsStore implements OnModuleDestroy {
 
   updateTripFare(id: string, amount: number) {
     const trip = this.getTrip(id)
-    trip.estimatedCostCs = roundFareCs(Number(amount) || 0)
+    trip.estimatedCostCs = roundFareCs(Number(amount) || 0, this.tarifas.getSettings().roundingCs)
     const expected = trip.estimatedCostCs
     if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
     else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'

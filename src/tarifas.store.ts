@@ -46,6 +46,15 @@ export interface FareResult {
   params: { baseFareCs: number; includedKm: number; surchargePerKmCs: number; roadFactor: number; roundingCs: number }
 }
 
+export function roundFareCs(value: number, multiple = 5): number {
+  const whole = Number.isFinite(value) ? Math.max(0, Math.floor(value)) : 0
+  const step = Number.isFinite(multiple) ? Math.max(1, Math.round(multiple)) : 5
+  if (whole <= 0) return 0
+  // Regla comercial existente: con múltiplo 5, una unidad 7 sube al siguiente 10 (857 -> 860).
+  if (step === 5 && whole % 10 === 7) return (Math.floor(whole / 10) + 1) * 10
+  return Math.round(whole / step) * step
+}
+
 export const DISTRICT_STATUSES = [
   'Verificado OSM 2026',
   'Nuevo – verificado OSM 2026',
@@ -400,7 +409,7 @@ export class TarifasStore implements OnModuleDestroy {
     const straightKm = Math.round(haversineKm(params.originLat, params.originLng, params.destLat, params.destLng) * 100) / 100
     const roadKm = Math.round(straightKm * settings.roadFactor * 100) / 100
     const raw = settings.baseFareCs + Math.max(0, roadKm - settings.includedKm) * settings.surchargePerKmCs
-    const fareCs = Math.ceil(raw / settings.roundingCs) * settings.roundingCs
+    const fareCs = roundFareCs(raw, settings.roundingCs)
     const originCoverage = params.originCoverage ?? true
     const destCoverage = params.destCoverage ?? true
     const status = originCoverage && destCoverage ? 'TARIFA REFERENCIAL' : 'FUERA DE COBERTURA'
