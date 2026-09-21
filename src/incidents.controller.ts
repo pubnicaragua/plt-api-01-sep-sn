@@ -76,9 +76,11 @@ export class IncidentsController {
   @Post()
   @ApiOperation({ summary: 'Reportar una incidencia nueva con descripción, GPS y evidencia (abierta por defecto)' })
   create(@Body() body: CreateIncidentDto) {
-    const inferredScope = body.scope ?? (
-      body.trip?.trim() || body.driver?.trim() ? 'trip' : 'general'
-    )
+    const tripValue = body.trip?.trim() ?? ''
+    const driverValue = body.driver?.trim() ?? ''
+    const legacyGeneral = ['', '—', '-', 'General'].includes(tripValue)
+      && ['', '—', '-', 'Todos los conductores'].includes(driverValue)
+    const inferredScope = body.scope ?? (legacyGeneral ? 'general' : 'trip')
     return this.store.createIncident({
       scope: inferredScope,
       trip: body.trip?.trim() || (inferredScope === 'general' ? 'General' : '—'),
