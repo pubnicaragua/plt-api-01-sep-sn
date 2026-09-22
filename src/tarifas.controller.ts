@@ -112,6 +112,10 @@ class CalculateFareDto {
   destLng!: number
 
   @IsOptional()
+  @IsIn(['Moto', 'Vehículo', 'Camión'])
+  transport?: 'Moto' | 'Vehículo' | 'Camión'
+
+  @IsOptional()
   @IsBoolean()
   originCoverage?: boolean
 

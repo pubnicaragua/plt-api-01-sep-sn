@@ -82,6 +82,34 @@ class CreateDriverDto {
   @IsOptional()
   @IsString()
   bloodType?: string
+
+  @IsOptional()
+  @IsString()
+  residence?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact1Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact1Phone?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact2Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact2Phone?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact3Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact3Phone?: string
 }
 
 class UpdateDriverDto {
@@ -132,6 +160,34 @@ class UpdateDriverDto {
   @IsOptional()
   @IsString()
   bloodType?: string
+
+  @IsOptional()
+  @IsString()
+  residence?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact1Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact1Phone?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact2Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact2Phone?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact3Name?: string
+
+  @IsOptional()
+  @IsString()
+  emergencyContact3Phone?: string
 }
 
 @ApiTags('drivers')

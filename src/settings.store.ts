@@ -6,6 +6,7 @@ import { DatabaseSync } from 'node:sqlite'
 export interface VehicleRate {
   baseFeeCs: number
   farePerKmCs: number
+  includedKm?: number
 }
 
 export interface AppSettings {
@@ -43,9 +44,9 @@ const DEFAULTS: Omit<AppSettings, 'updatedAt'> = {
   baseFeeCs: 80,
   farePerKmCs: 8.5,
   vehicleRates: {
-    Moto: { baseFeeCs: 60, farePerKmCs: 6.5 },
-    Vehículo: { baseFeeCs: 80, farePerKmCs: 8.5 },
-    Camión: { baseFeeCs: 130, farePerKmCs: 13.5 },
+    Moto: { baseFeeCs: 60, farePerKmCs: 6.5, includedKm: 4 },
+    Vehículo: { baseFeeCs: 80, farePerKmCs: 8.5, includedKm: 4 },
+    Camión: { baseFeeCs: 130, farePerKmCs: 13.5, includedKm: 4 },
   },
   prioritySurchargePct: 25,
   scheduledSurchargePct: 0,
@@ -87,7 +88,10 @@ export class SettingsStore implements OnModuleDestroy {
     const numericKeys = ['dollarRate', 'fuelPriceGasolineCs', 'fuelPriceDieselCs', 'baseFeeCs', 'farePerKmCs', 'prioritySurchargePct', 'scheduledSurchargePct']
     const values: Record<string, string | number> = {}
     for (const row of rows) values[row.key] = numericKeys.includes(row.key) ? Number(row.value) : row.value
-    const updatedAt = rows[0]?.updated_at ?? new Date().toISOString()
+    const updatedAt = rows.reduce(
+      (latest, row) => row.updated_at > latest ? row.updated_at : latest,
+      new Date(0).toISOString(),
+    )
     const merged = { ...DEFAULTS, ...values, updatedAt } as unknown as AppSettings
     if (typeof merged.vehicleRates === 'string') {
       try {
@@ -95,6 +99,12 @@ export class SettingsStore implements OnModuleDestroy {
       } catch {
         merged.vehicleRates = DEFAULTS.vehicleRates
       }
+    }
+    const storedRates = (merged.vehicleRates ?? {}) as Partial<Record<keyof AppSettings['vehicleRates'], Partial<VehicleRate>>>
+    merged.vehicleRates = {
+      Moto: { ...DEFAULTS.vehicleRates.Moto, ...(storedRates.Moto ?? {}) },
+      Vehículo: { ...DEFAULTS.vehicleRates.Vehículo, ...(storedRates.Vehículo ?? {}) },
+      Camión: { ...DEFAULTS.vehicleRates.Camión, ...(storedRates.Camión ?? {}) },
     }
     return merged
   }

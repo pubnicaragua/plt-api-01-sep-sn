@@ -12,6 +12,11 @@ class VehicleRateDto implements VehicleRate {
   @IsNumber()
   @Min(0)
   farePerKmCs!: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  includedKm?: number
 }
 
 class UpdateSettingsDto implements SettingsPatch {

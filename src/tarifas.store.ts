@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy } from '@nestjs/common'
 import { resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
+import { SettingsStore } from './settings.store'
 
 export interface TariffSettings {
   baseFareCs: number
@@ -131,7 +132,7 @@ function haversineKm(lat1: number, lon1: number, lat2: number, lon2: number): nu
 export class TarifasStore implements OnModuleDestroy {
   private readonly db: DatabaseSync
 
-  constructor() {
+  constructor(private readonly settingsStore: SettingsStore) {
     this.db = new DatabaseSync(resolve(process.env.INCOEX_DB_PATH ?? 'data/incoex-local.sqlite'), { timeout: 5000 })
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS tariff_settings (
@@ -404,11 +405,13 @@ export class TarifasStore implements OnModuleDestroy {
     return { deleted: true }
   }
 
-  calculate(params: { originLat: number; originLng: number; destLat: number; destLng: number; originCoverage?: boolean; destCoverage?: boolean }): FareResult {
+  calculate(params: { originLat: number; originLng: number; destLat: number; destLng: number; transport?: 'Moto' | 'Vehículo' | 'Camión'; originCoverage?: boolean; destCoverage?: boolean }): FareResult {
     const settings = this.getSettings()
     const straightKm = Math.round(haversineKm(params.originLat, params.originLng, params.destLat, params.destLng) * 100) / 100
     const roadKm = Math.round(straightKm * settings.roadFactor * 100) / 100
-    const raw = settings.baseFareCs + Math.max(0, roadKm - settings.includedKm) * settings.surchargePerKmCs
+    const transport = params.transport ?? 'Vehículo'
+    const rate = this.settingsStore.getVehicleRate(transport)
+    const raw = rate.baseFeeCs + Math.max(0, roadKm - (rate.includedKm ?? 4)) * rate.farePerKmCs
     const fareCs = roundFareCs(raw, settings.roundingCs)
     const originCoverage = params.originCoverage ?? true
     const destCoverage = params.destCoverage ?? true
@@ -418,12 +421,12 @@ export class TarifasStore implements OnModuleDestroy {
       roadKm,
       fareCs,
       status,
-      method: 'Centroide del catálogo + factor vial',
+      method: `Distancia referencial + factor vial · ${transport}`,
       coverage: { origin: originCoverage, destination: destCoverage },
       params: {
-        baseFareCs: settings.baseFareCs,
-        includedKm: settings.includedKm,
-        surchargePerKmCs: settings.surchargePerKmCs,
+        baseFareCs: rate.baseFeeCs,
+        includedKm: rate.includedKm ?? 4,
+        surchargePerKmCs: rate.farePerKmCs,
         roadFactor: settings.roadFactor,
         roundingCs: settings.roundingCs,
       },

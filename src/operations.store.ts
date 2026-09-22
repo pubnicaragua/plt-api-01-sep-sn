@@ -136,7 +136,14 @@ export class OperationsStore implements OnModuleDestroy {
         license_no TEXT NOT NULL DEFAULT '',
         license_exp TEXT NOT NULL DEFAULT '',
         doc_no TEXT NOT NULL DEFAULT '',
-        notes TEXT NOT NULL DEFAULT ''
+        notes TEXT NOT NULL DEFAULT '',
+        residence TEXT NOT NULL DEFAULT '',
+        emergency_contact_1_name TEXT NOT NULL DEFAULT '',
+        emergency_contact_1_phone TEXT NOT NULL DEFAULT '',
+        emergency_contact_2_name TEXT NOT NULL DEFAULT '',
+        emergency_contact_2_phone TEXT NOT NULL DEFAULT '',
+        emergency_contact_3_name TEXT NOT NULL DEFAULT '',
+        emergency_contact_3_phone TEXT NOT NULL DEFAULT ''
       );
       CREATE TABLE IF NOT EXISTS incidents (
         id TEXT PRIMARY KEY,
@@ -321,6 +328,13 @@ export class OperationsStore implements OnModuleDestroy {
     if (!columns.has('notes')) this.db.exec("ALTER TABLE drivers ADD COLUMN notes TEXT NOT NULL DEFAULT ''")
     if (!columns.has('license_categories')) this.db.exec("ALTER TABLE drivers ADD COLUMN license_categories TEXT NOT NULL DEFAULT ''")
     if (!columns.has('blood_type')) this.db.exec("ALTER TABLE drivers ADD COLUMN blood_type TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('residence')) this.db.exec("ALTER TABLE drivers ADD COLUMN residence TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_1_name')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_1_name TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_1_phone')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_1_phone TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_2_name')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_2_name TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_2_phone')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_2_phone TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_3_name')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_3_name TEXT NOT NULL DEFAULT ''")
+    if (!columns.has('emergency_contact_3_phone')) this.db.exec("ALTER TABLE drivers ADD COLUMN emergency_contact_3_phone TEXT NOT NULL DEFAULT ''")
   }
 
   private migrateClients() {
@@ -516,6 +530,13 @@ export class OperationsStore implements OnModuleDestroy {
       notes: String(row.notes ?? ''),
       licenseCategories: String(row.license_categories ?? ''),
       bloodType: String(row.blood_type ?? ''),
+      residence: String(row.residence ?? ''),
+      emergencyContact1Name: String(row.emergency_contact_1_name ?? ''),
+      emergencyContact1Phone: String(row.emergency_contact_1_phone ?? ''),
+      emergencyContact2Name: String(row.emergency_contact_2_name ?? ''),
+      emergencyContact2Phone: String(row.emergency_contact_2_phone ?? ''),
+      emergencyContact3Name: String(row.emergency_contact_3_name ?? ''),
+      emergencyContact3Phone: String(row.emergency_contact_3_phone ?? ''),
     }))
   }
 
@@ -845,7 +866,7 @@ export class OperationsStore implements OnModuleDestroy {
     return { deleted: id, status: 'Inactivo' }
   }
 
-  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
+  createDriver(input: { name: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string; residence?: string; emergencyContact1Name?: string; emergencyContact1Phone?: string; emergencyContact2Name?: string; emergencyContact2Phone?: string; emergencyContact3Name?: string; emergencyContact3Phone?: string }) {
     const phone = (input.phone ?? '').trim()
     const name = (input.name ?? '').trim()
     if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
@@ -863,10 +884,17 @@ export class OperationsStore implements OnModuleDestroy {
       const nextNotes = input.notes ?? String(row.notes ?? '')
       const nextLicenseCategories = input.licenseCategories ?? String(row.license_categories ?? '')
       const nextBloodType = input.bloodType ?? String(row.blood_type ?? '')
-      this.db.prepare('UPDATE drivers SET name = ?, phone = ?, vehicle = ?, plate = ?, email = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
-        .run(name, nextPhone, nextVehicle, nextPlate, nextEmail, nextExternal ? 1 : 0, nextLicenseNo, nextLicenseExp, nextDocNo, nextNotes, nextLicenseCategories, nextBloodType, String(row.id))
+      const nextResidence = input.residence ?? String(row.residence ?? '')
+      const nextEmergencyContact1Name = input.emergencyContact1Name ?? String(row.emergency_contact_1_name ?? '')
+      const nextEmergencyContact1Phone = input.emergencyContact1Phone ?? String(row.emergency_contact_1_phone ?? '')
+      const nextEmergencyContact2Name = input.emergencyContact2Name ?? String(row.emergency_contact_2_name ?? '')
+      const nextEmergencyContact2Phone = input.emergencyContact2Phone ?? String(row.emergency_contact_2_phone ?? '')
+      const nextEmergencyContact3Name = input.emergencyContact3Name ?? String(row.emergency_contact_3_name ?? '')
+      const nextEmergencyContact3Phone = input.emergencyContact3Phone ?? String(row.emergency_contact_3_phone ?? '')
+      this.db.prepare('UPDATE drivers SET name = ?, phone = ?, vehicle = ?, plate = ?, email = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ?, residence = ?, emergency_contact_1_name = ?, emergency_contact_1_phone = ?, emergency_contact_2_name = ?, emergency_contact_2_phone = ?, emergency_contact_3_name = ?, emergency_contact_3_phone = ? WHERE id = ?')
+        .run(name, nextPhone, nextVehicle, nextPlate, nextEmail, nextExternal ? 1 : 0, nextLicenseNo, nextLicenseExp, nextDocNo, nextNotes, nextLicenseCategories, nextBloodType, nextResidence, nextEmergencyContact1Name, nextEmergencyContact1Phone, nextEmergencyContact2Name, nextEmergencyContact2Phone, nextEmergencyContact3Name, nextEmergencyContact3Phone, String(row.id))
       const updated = this.drivers.find((driver) => driver.id === row.id)
-      if (updated) Object.assign(updated, { name, phone: nextPhone, vehicle: nextVehicle, plate: nextPlate, email: nextEmail, external: nextExternal, licenseNo: nextLicenseNo, licenseExp: nextLicenseExp, docNo: nextDocNo, notes: nextNotes, licenseCategories: nextLicenseCategories, bloodType: nextBloodType })
+      if (updated) Object.assign(updated, { name, phone: nextPhone, vehicle: nextVehicle, plate: nextPlate, email: nextEmail, external: nextExternal, licenseNo: nextLicenseNo, licenseExp: nextLicenseExp, docNo: nextDocNo, notes: nextNotes, licenseCategories: nextLicenseCategories, bloodType: nextBloodType, residence: nextResidence, emergencyContact1Name: nextEmergencyContact1Name, emergencyContact1Phone: nextEmergencyContact1Phone, emergencyContact2Name: nextEmergencyContact2Name, emergencyContact2Phone: nextEmergencyContact2Phone, emergencyContact3Name: nextEmergencyContact3Name, emergencyContact3Phone: nextEmergencyContact3Phone })
       return updated ? { ...updated, existed: true } : updated
     }
     const driver: Driver = {
@@ -887,14 +915,21 @@ export class OperationsStore implements OnModuleDestroy {
       notes: String(input.notes ?? ''),
       licenseCategories: String(input.licenseCategories ?? ''),
       bloodType: String(input.bloodType ?? ''),
+      residence: String(input.residence ?? ''),
+      emergencyContact1Name: String(input.emergencyContact1Name ?? ''),
+      emergencyContact1Phone: String(input.emergencyContact1Phone ?? ''),
+      emergencyContact2Name: String(input.emergencyContact2Name ?? ''),
+      emergencyContact2Phone: String(input.emergencyContact2Phone ?? ''),
+      emergencyContact3Name: String(input.emergencyContact3Name ?? ''),
+      emergencyContact3Phone: String(input.emergencyContact3Phone ?? ''),
     }
     this.drivers.push(driver)
-    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes, license_categories, blood_type) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '')
+    this.db.prepare('INSERT INTO drivers (id, name, phone, email, vehicle, plate, status, route, latitude, longitude, external, license_no, license_exp, doc_no, notes, license_categories, blood_type, residence, emergency_contact_1_name, emergency_contact_1_phone, emergency_contact_2_name, emergency_contact_2_phone, emergency_contact_3_name, emergency_contact_3_phone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(driver.id, driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.status, driver.route, driver.latitude, driver.longitude, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', driver.residence ?? '', driver.emergencyContact1Name ?? '', driver.emergencyContact1Phone ?? '', driver.emergencyContact2Name ?? '', driver.emergencyContact2Phone ?? '', driver.emergencyContact3Name ?? '', driver.emergencyContact3Phone ?? '')
     return driver
   }
 
-  updateDriver(id: string, input: { name?: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string }) {
+  updateDriver(id: string, input: { name?: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string; residence?: string; emergencyContact1Name?: string; emergencyContact1Phone?: string; emergencyContact2Name?: string; emergencyContact2Phone?: string; emergencyContact3Name?: string; emergencyContact3Phone?: string }) {
     const driver = this.drivers.find((candidate) => candidate.id === id)
     if (!driver) throw new NotFoundException('Conductor no encontrado')
     if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
@@ -910,8 +945,15 @@ export class OperationsStore implements OnModuleDestroy {
     if (input.notes !== undefined) driver.notes = input.notes
     if (input.licenseCategories !== undefined) driver.licenseCategories = input.licenseCategories
     if (input.bloodType !== undefined) driver.bloodType = input.bloodType
-    this.db.prepare('UPDATE drivers SET name = ?, phone = ?, email = ?, vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ? WHERE id = ?')
-      .run(driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', id)
+    if (input.residence !== undefined) driver.residence = input.residence
+    if (input.emergencyContact1Name !== undefined) driver.emergencyContact1Name = input.emergencyContact1Name
+    if (input.emergencyContact1Phone !== undefined) driver.emergencyContact1Phone = input.emergencyContact1Phone
+    if (input.emergencyContact2Name !== undefined) driver.emergencyContact2Name = input.emergencyContact2Name
+    if (input.emergencyContact2Phone !== undefined) driver.emergencyContact2Phone = input.emergencyContact2Phone
+    if (input.emergencyContact3Name !== undefined) driver.emergencyContact3Name = input.emergencyContact3Name
+    if (input.emergencyContact3Phone !== undefined) driver.emergencyContact3Phone = input.emergencyContact3Phone
+    this.db.prepare('UPDATE drivers SET name = ?, phone = ?, email = ?, vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ?, residence = ?, emergency_contact_1_name = ?, emergency_contact_1_phone = ?, emergency_contact_2_name = ?, emergency_contact_2_phone = ?, emergency_contact_3_name = ?, emergency_contact_3_phone = ? WHERE id = ?')
+      .run(driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', driver.residence ?? '', driver.emergencyContact1Name ?? '', driver.emergencyContact1Phone ?? '', driver.emergencyContact2Name ?? '', driver.emergencyContact2Phone ?? '', driver.emergencyContact3Name ?? '', driver.emergencyContact3Phone ?? '', id)
     return driver
   }
 
@@ -1193,7 +1235,8 @@ export class OperationsStore implements OnModuleDestroy {
       : input.serviceType === 'Programado'
         ? settings.scheduledSurchargePct
         : 0
-    const baseCost = rate.baseFeeCs + distanceKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
+    const chargeableKm = Math.max(0, distanceKm - (rate.includedKm ?? 4))
+    const baseCost = rate.baseFeeCs + chargeableKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
     const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100), this.tarifas.getSettings().roundingCs)
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
