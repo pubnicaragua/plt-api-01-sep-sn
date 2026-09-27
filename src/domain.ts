@@ -1,4 +1,27 @@
 export type TripStatus = 'Pendiente' | 'Asignado' | 'En camino' | 'En entrega' | 'Completado' | 'Cancelado' | 'Anulado'
+export type TripServiceMode = 'Envíos' | 'Taxi Privado'
+export type TripOptionKind = 'option' | 'vehicle'
+export type TripOptionService = 'delivery' | 'taxi' | 'cargo'
+export type TripOptionPricing = 'flat' | 'per_km' | 'per_hour'
+
+export interface TripStop {
+  id?: string
+  label: string
+  address: string
+  latitude?: number
+  longitude?: number
+  refs?: string
+  order: number
+}
+
+export interface TripOptionSelection {
+  code: string
+  title: string
+  description?: string
+  priceCs: number
+  currency?: 'NIO' | 'USD'
+  quantity?: number
+}
 export type DriverStatus = 'Disponible' | 'En viaje' | 'En entrega' | 'Fuera de servicio'
 export type IncidentPriority = 'Baja' | 'Media' | 'Alta' | 'Crítica'
 export type IncidentStatus = 'Abierta' | 'En proceso' | 'Resuelta'
@@ -27,7 +50,15 @@ export interface Trip {
   costCs?: number
   profitCs?: number
   serviceType?: 'Urbano' | 'Express' | 'Programado'
+  serviceMode?: TripServiceMode
   transport?: 'Moto' | 'Vehículo' | 'Camión'
+  vehicleVariant?: string
+  truckType?: string
+  passengerCount?: number
+  returnTrip?: boolean
+  stops?: TripStop[]
+  options?: TripOptionSelection[]
+  optionsTotalCs?: number
   contactName?: string
   contactPhone?: string
   pickupTime?: string

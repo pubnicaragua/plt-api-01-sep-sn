@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsBoolean, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
-import { DESTINATION_CATEGORIES, DISTRICT_STATUSES, TarifasStore } from './tarifas.store'
+import { DESTINATION_CATEGORIES, DISTRICT_STATUSES, TarifasStore, type ServiceCatalogItem, type ServiceCatalogKind, type ServiceCatalogPricing, type ServiceCatalogService } from './tarifas.store'
 
 class UpdateSettingsDto {
   @IsOptional()
@@ -124,6 +124,56 @@ class CalculateFareDto {
   destCoverage?: boolean
 }
 
+class ServiceCatalogDto implements Omit<ServiceCatalogItem, 'id' | 'updatedAt'> {
+  @IsString()
+  @IsNotEmpty()
+  code!: string
+
+  @IsIn(['option', 'vehicle'])
+  kind!: ServiceCatalogKind
+
+  @IsIn(['delivery', 'taxi', 'cargo'])
+  service!: ServiceCatalogService
+
+  @IsIn(['Moto', 'Vehículo', 'Camión'])
+  transport!: ServiceCatalogItem['transport']
+
+  @IsString()
+  @IsNotEmpty()
+  title!: string
+
+  @IsOptional()
+  @IsString()
+  description = ''
+
+  @IsNumber()
+  @Min(0)
+  priceCs = 0
+
+  @IsIn(['NIO', 'USD'])
+  currency: ServiceCatalogItem['currency'] = 'NIO'
+
+  @IsIn(['flat', 'per_km', 'per_hour'])
+  pricingMode: ServiceCatalogPricing = 'flat'
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  maxWeightKg?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  maxPassengers?: number
+
+  @IsBoolean()
+  enabled = true
+
+  @IsNumber()
+  @Min(0)
+  sortOrder = 0
+}
+
 @ApiTags('tarifas')
 @Controller('tarifas')
 export class TarifasController {
@@ -136,7 +186,32 @@ export class TarifasController {
       settings: this.store.getSettings(),
       districts: this.store.listDistricts(),
       destinations: this.store.listDestinations(),
+      serviceCatalog: this.store.listServiceCatalog(),
     }
+  }
+
+  @Get('service-options')
+  @ApiOperation({ summary: 'Opciones, variantes de vehículo y extras configurables para la app' })
+  serviceOptions() {
+    return this.store.listServiceCatalog()
+  }
+
+  @Post('service-options')
+  @ApiOperation({ summary: 'Crear una opción o variante de servicio' })
+  createServiceOption(@Body() body: ServiceCatalogDto) {
+    return this.store.createServiceCatalog(body)
+  }
+
+  @Patch('service-options/:id')
+  @ApiOperation({ summary: 'Editar una opción o variante de servicio' })
+  updateServiceOption(@Param('id') id: string, @Body() body: Partial<ServiceCatalogDto>) {
+    return this.store.updateServiceCatalog(id, body)
+  }
+
+  @Delete('service-options/:id')
+  @ApiOperation({ summary: 'Eliminar una opción o variante de servicio' })
+  deleteServiceOption(@Param('id') id: string) {
+    return this.store.deleteServiceCatalog(id)
   }
 
   @Get('settings')

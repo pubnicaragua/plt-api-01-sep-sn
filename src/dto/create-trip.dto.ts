@@ -1,4 +1,62 @@
-import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
+import { Type } from 'class-transformer'
+import { IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Min, ValidateNested } from 'class-validator'
+
+export class TripStopDto {
+  @IsOptional()
+  @IsString()
+  id?: string
+
+  @IsString()
+  @IsNotEmpty()
+  label!: string
+
+  @IsString()
+  @IsNotEmpty()
+  address!: string
+
+  @IsOptional()
+  @IsNumber()
+  latitude?: number
+
+  @IsOptional()
+  @IsNumber()
+  longitude?: number
+
+  @IsOptional()
+  @IsString()
+  refs?: string
+
+  @IsInt()
+  @Min(1)
+  order!: number
+}
+
+export class TripOptionSelectionDto {
+  @IsString()
+  @IsNotEmpty()
+  code!: string
+
+  @IsString()
+  @IsNotEmpty()
+  title!: string
+
+  @IsOptional()
+  @IsString()
+  description?: string
+
+  @IsNumber()
+  @Min(0)
+  priceCs!: number
+
+  @IsOptional()
+  @IsIn(['NIO', 'USD'])
+  currency?: 'NIO' | 'USD'
+
+  @IsOptional()
+  @IsNumber()
+  @Min(1)
+  quantity?: number
+}
 
 export class CreateTripDto {
   @IsString()
@@ -59,8 +117,41 @@ export class CreateTripDto {
   serviceType?: 'Urbano' | 'Express' | 'Programado'
 
   @IsOptional()
+  @IsIn(['Envíos', 'Taxi Privado'])
+  serviceMode?: 'Envíos' | 'Taxi Privado'
+
+  @IsOptional()
   @IsIn(['Moto', 'Vehículo', 'Camión'])
   transport?: 'Moto' | 'Vehículo' | 'Camión'
+
+  @IsOptional()
+  @IsString()
+  vehicleVariant?: string
+
+  @IsOptional()
+  @IsString()
+  truckType?: string
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  passengerCount?: number
+
+  @IsOptional()
+  @IsBoolean()
+  returnTrip?: boolean
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TripStopDto)
+  stops?: TripStopDto[]
+
+  @IsOptional()
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => TripOptionSelectionDto)
+  options?: TripOptionSelectionDto[]
 
   @IsOptional()
   @IsBoolean()

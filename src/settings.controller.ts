@@ -84,7 +84,11 @@ export class SettingsController {
   @Get()
   @ApiOperation({ summary: 'Configuración operativa: tasa de cambio del dólar y tarifas en córdobas (C$)' })
   get() {
-    return { ...this.store.get(), fareRoundingCs: this.tarifas.getSettings().roundingCs }
+    return {
+      ...this.store.get(),
+      fareRoundingCs: this.tarifas.getSettings().roundingCs,
+      serviceCatalog: this.tarifas.listServiceCatalog({ enabledOnly: true }),
+    }
   }
 
   @Patch()

@@ -2,7 +2,7 @@
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripStatus } from './domain'
+import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripOptionSelection, TripStop, TripStatus } from './domain'
 import { hashPassword, verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
@@ -223,6 +223,14 @@ export class OperationsStore implements OnModuleDestroy {
     ['weight', 'REAL'],
     ['weight_unit', 'TEXT NOT NULL DEFAULT \'kg\''],
     ['cancel_reason', 'TEXT NOT NULL DEFAULT \'\''],
+    ['service_mode', 'TEXT NOT NULL DEFAULT \'Envíos\''],
+    ['vehicle_variant', 'TEXT NOT NULL DEFAULT \'\''],
+    ['truck_type', 'TEXT NOT NULL DEFAULT \'\''],
+    ['passenger_count', 'INTEGER NOT NULL DEFAULT 1'],
+    ['return_trip', 'INTEGER NOT NULL DEFAULT 0'],
+    ['options_json', 'TEXT NOT NULL DEFAULT \'[]\''],
+    ['stops_json', 'TEXT NOT NULL DEFAULT \'[]\''],
+    ['options_total_cs', 'REAL NOT NULL DEFAULT 0'],
   ]
 
   private migrateTrips() {
@@ -591,7 +599,15 @@ export class OperationsStore implements OnModuleDestroy {
       costCs: row.cost_cs === null || row.cost_cs === undefined ? 0 : Number(row.cost_cs),
       profitCs: Number((Number(row.estimated_cost_cs ?? 0) - Number(row.cost_cs ?? 0)).toFixed(2)),
       serviceType: (row.service_type?.toString() ?? 'Urbano') as Trip['serviceType'],
+      serviceMode: (row.service_mode?.toString() ?? 'Envíos') as Trip['serviceMode'],
       transport: (row.transport?.toString() ?? 'Vehículo') as Trip['transport'],
+      vehicleVariant: row.vehicle_variant?.toString() || undefined,
+      truckType: row.truck_type?.toString() || undefined,
+      passengerCount: Number(row.passenger_count ?? 1),
+      returnTrip: Boolean(row.return_trip),
+      options: this.parseTripJson<TripOptionSelection[]>(row.options_json, []),
+      stops: this.parseTripJson<TripStop[]>(row.stops_json, []),
+      optionsTotalCs: Number(row.options_total_cs ?? 0),
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
       pickupTime: row.pickup_time?.toString(),
@@ -606,6 +622,8 @@ export class OperationsStore implements OnModuleDestroy {
       scheduledDate: row.scheduled_date?.toString() || undefined,
       scheduledTime: row.scheduled_time?.toString() || undefined,
       isScheduled: Boolean(row.is_scheduled),
+      weight: row.weight === null || row.weight === undefined ? undefined : Number(row.weight),
+      weightUnit: (row.weight_unit?.toString() ?? 'kg') as Trip['weightUnit'],
       cancelReason: row.cancel_reason?.toString() || undefined,
     }))
   }
@@ -614,10 +632,19 @@ export class OperationsStore implements OnModuleDestroy {
     statement.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0)
   }
 
+  private parseTripJson<T>(value: unknown, fallback: T): T {
+    if (typeof value !== 'string' || !value.trim()) return fallback
+    try {
+      const parsed = JSON.parse(value) as T
+      return parsed ?? fallback
+    } catch {
+      return fallback
+    }
+  }
+
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
-    this.db.prepare('UPDATE trips SET transport = ? WHERE id = ?').run(trip.transport ?? 'Vehículo', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, transport = ?, service_mode = ?, vehicle_variant = ?, truck_type = ?, passenger_count = ?, return_trip = ?, options_json = ?, stops_json = ?, options_total_cs = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -1198,7 +1225,14 @@ export class OperationsStore implements OnModuleDestroy {
     destinationLng?: number
     distanceKm?: number
     serviceType?: 'Urbano' | 'Express' | 'Programado'
+    serviceMode?: 'Envíos' | 'Taxi Privado'
     transport?: 'Moto' | 'Vehículo' | 'Camión'
+    vehicleVariant?: string
+    truckType?: string
+    passengerCount?: number
+    returnTrip?: boolean
+    stops?: TripStop[]
+    options?: TripOptionSelection[]
     autoAssign?: boolean
     contactName?: string
     contactPhone?: string
@@ -1211,8 +1245,26 @@ export class OperationsStore implements OnModuleDestroy {
     weightUnit?: 'kg' | 'lb'
   }) {
     const nextNumber = 4792 + this.trips.length
-    const distanceKm = Math.max(0, input.distanceKm ?? 0)
+    const routeDistanceKm = Math.max(0, input.distanceKm ?? 0)
     const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
+    const serviceMode = input.serviceMode ?? 'Envíos'
+    const settings = this.settings.get()
+    if (serviceMode === 'Taxi Privado' && input.transport !== 'Vehículo') {
+      throw new BadRequestException('El taxi privado requiere transporte Vehículo')
+    }
+    const stops = [...(input.stops ?? [])]
+      .filter((stop) => stop.address?.trim())
+      .sort((a, b) => a.order - b.order)
+      .map((stop, index) => ({ ...stop, label: stop.label?.trim() || `Parada ${index + 1}`, address: stop.address.trim(), order: index + 1 }))
+    const options = [...(input.options ?? [])]
+      .filter((option) => option.code?.trim() && Number.isFinite(option.priceCs) && option.priceCs >= 0)
+      .map((option) => ({ ...option, code: option.code.trim(), title: option.title.trim(), quantity: Math.max(1, option.quantity ?? 1) }))
+    const optionsTotalCs = Number(options.reduce((sum, option) => {
+      const priceCs = option.currency === 'USD' ? option.priceCs * settings.dollarRate : option.priceCs
+      return sum + priceCs * (option.quantity ?? 1)
+    }, 0).toFixed(2))
+    const distanceMultiplier = input.returnTrip ? 2 : 1
+    const distanceKm = Number((routeDistanceKm * distanceMultiplier).toFixed(2))
 
     if (input.isScheduled || input.serviceType === 'Programado') {
       const target = parseManaguaSchedule(input.scheduledDate, input.scheduledTime)
@@ -1229,14 +1281,13 @@ export class OperationsStore implements OnModuleDestroy {
       }
     }
 
-    const settings = this.settings.get()
     const surchargePct = input.serviceType === 'Express'
       ? settings.prioritySurchargePct
       : input.serviceType === 'Programado'
         ? settings.scheduledSurchargePct
         : 0
     const chargeableKm = Math.max(0, distanceKm - (rate.includedKm ?? 4))
-    const baseCost = rate.baseFeeCs + chargeableKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS
+    const baseCost = rate.baseFeeCs + chargeableKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS + optionsTotalCs
     const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100), this.tarifas.getSettings().roundingCs)
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
@@ -1262,7 +1313,15 @@ export class OperationsStore implements OnModuleDestroy {
       distanceKm,
       estimatedCostCs,
       serviceType: input.serviceType ?? 'Urbano',
+      serviceMode,
       transport: input.transport ?? 'Vehículo',
+      vehicleVariant: input.vehicleVariant,
+      truckType: input.truckType,
+      passengerCount: Math.max(1, input.passengerCount ?? 1),
+      returnTrip: Boolean(input.returnTrip),
+      options,
+      stops,
+      optionsTotalCs,
       contactName: input.contactName,
       contactPhone: input.contactPhone,
       originRefs: input.originRefs,
@@ -1276,9 +1335,8 @@ export class OperationsStore implements OnModuleDestroy {
       weightUnit: input.weightUnit ?? 'kg',
     }
     this.trips.unshift(trip)
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0)
-    this.db.prepare('UPDATE trips SET transport = ? WHERE id = ?').run(trip.transport ?? 'Vehículo', trip.id)
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, transport, service_mode, vehicle_variant, truck_type, passenger_count, return_trip, options_json, stops_json, options_total_cs, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled, weight, weight_unit) VALUES (' + Array.from({ length: 44 }, () => '?').join(', ') + ')')
+    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg')
     this.recordHistory('Solicitud', 'Nueva solicitud recibida', `Viaje ${trip.id} · ${trip.client} · ${trip.packages} paquetes`, 'blue')
     if (input.autoAssign) {
       this.assignAutomatically(trip)

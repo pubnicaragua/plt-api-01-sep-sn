@@ -37,6 +37,28 @@ export interface TariffDestination {
   status: string
 }
 
+export type ServiceCatalogKind = 'option' | 'vehicle'
+export type ServiceCatalogService = 'delivery' | 'taxi' | 'cargo'
+export type ServiceCatalogPricing = 'flat' | 'per_km' | 'per_hour'
+
+export interface ServiceCatalogItem {
+  id: string
+  code: string
+  kind: ServiceCatalogKind
+  service: ServiceCatalogService
+  transport: 'Moto' | 'Vehículo' | 'Camión'
+  title: string
+  description: string
+  priceCs: number
+  currency: 'NIO' | 'USD'
+  pricingMode: ServiceCatalogPricing
+  maxWeightKg?: number
+  maxPassengers?: number
+  enabled: boolean
+  sortOrder: number
+  updatedAt: string
+}
+
 export interface FareResult {
   straightKm: number
   roadKm: number
@@ -167,10 +189,28 @@ export class TarifasStore implements OnModuleDestroy {
         in_coverage INTEGER NOT NULL DEFAULT 1,
         status TEXT NOT NULL DEFAULT 'Verificado OSM 2026'
       );
+      CREATE TABLE IF NOT EXISTS service_catalog (
+        id TEXT PRIMARY KEY,
+        code TEXT NOT NULL UNIQUE,
+        kind TEXT NOT NULL,
+        service TEXT NOT NULL,
+        transport TEXT NOT NULL,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL DEFAULT '',
+        price_cs REAL NOT NULL DEFAULT 0,
+        currency TEXT NOT NULL DEFAULT 'NIO',
+        pricing_mode TEXT NOT NULL DEFAULT 'flat',
+        max_weight_kg REAL,
+        max_passengers INTEGER,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        sort_order INTEGER NOT NULL DEFAULT 0,
+        updated_at TEXT NOT NULL
+      );
     `)
     this.seedDistricts()
     this.seedSettings()
     this.seedDestinations()
+    this.seedServiceCatalog()
   }
 
   onModuleDestroy() {
@@ -402,6 +442,93 @@ export class TarifasStore implements OnModuleDestroy {
   deleteDestination(id: string): { deleted: boolean } {
     const result = this.db.prepare('DELETE FROM tariff_destinations WHERE id = ?').run(id)
     if (result.changes === 0) throw new NotFoundException('Destino no encontrado')
+    return { deleted: true }
+  }
+
+  private readonly serviceCatalogDefaults: Array<Omit<ServiceCatalogItem, 'id' | 'updatedAt'>> = [
+    { code: 'delivery-multiple-stops', kind: 'option', service: 'delivery', transport: 'Moto', title: 'Varios destinos', description: 'Múltiples destinos ordenados', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 10 },
+    { code: 'delivery-round-trip', kind: 'option', service: 'delivery', transport: 'Moto', title: 'Ida y vuelta', description: 'Regreso al origen', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 20 },
+    { code: 'delivery-insurance', kind: 'option', service: 'delivery', transport: 'Moto', title: 'Seguro', description: 'Asegura tu producto', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 30 },
+    { code: 'delivery-waiting', kind: 'option', service: 'delivery', transport: 'Moto', title: 'Espera en destino', description: 'El chofer espera', priceCs: 40, currency: 'USD', pricingMode: 'per_hour', enabled: true, sortOrder: 40 },
+    { code: 'cargo-helper', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Ayudante', description: 'Para carga y descarga', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 10 },
+    { code: 'cargo-multiple-stops', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Varios destinos', description: 'Múltiples destinos ordenados', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 20 },
+    { code: 'cargo-round-trip', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Ida y vuelta', description: 'Regreso al origen', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 30 },
+    { code: 'cargo-waiting', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Espera en destino', description: 'El chofer espera', priceCs: 40, currency: 'USD', pricingMode: 'per_hour', enabled: true, sortOrder: 40 },
+    { code: 'cargo-insurance', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Seguro', description: 'Asegura tu producto', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 50 },
+    { code: 'cargo-more-trucks', kind: 'option', service: 'cargo', transport: 'Camión', title: '¿Más camiones?', description: 'Escoge tu producto', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 60 },
+    { code: 'taxi-round-trip', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Ida y vuelta', description: 'Regreso al origen', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 10 },
+    { code: 'taxi-insurance', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Seguro', description: 'Asegura a los pasajeros', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 20 },
+    { code: 'taxi-waiting', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Espera en destino', description: 'El chofer espera', priceCs: 40, currency: 'USD', pricingMode: 'per_hour', enabled: true, sortOrder: 30 },
+    { code: 'taxi-sedan', kind: 'vehicle', service: 'taxi', transport: 'Vehículo', title: 'Sedán', description: 'Máximo de 4 pasajeros', priceCs: 12, currency: 'USD', pricingMode: 'flat', maxPassengers: 4, enabled: true, sortOrder: 100 },
+    { code: 'taxi-suv', kind: 'vehicle', service: 'taxi', transport: 'Vehículo', title: 'SUV', description: 'Máximo de 6 pasajeros', priceCs: 18, currency: 'USD', pricingMode: 'flat', maxPassengers: 6, enabled: true, sortOrder: 110 },
+    { code: 'cargo-extra-small', kind: 'vehicle', service: 'cargo', transport: 'Camión', title: 'Camión extra pequeño', description: 'Para cargas livianas', priceCs: 40, currency: 'USD', pricingMode: 'flat', maxWeightKg: 300, enabled: true, sortOrder: 100 },
+    { code: 'cargo-pickup', kind: 'vehicle', service: 'cargo', transport: 'Camión', title: 'Minivan/pickup', description: 'Para varias cajas o cocina a gas', priceCs: 40, currency: 'USD', pricingMode: 'flat', maxWeightKg: 600, enabled: true, sortOrder: 110 },
+    { code: 'cargo-medium', kind: 'vehicle', service: 'cargo', transport: 'Camión', title: 'Camión mediano', description: 'Para objetos grandes', priceCs: 40, currency: 'USD', pricingMode: 'flat', maxWeightKg: 1000, enabled: true, sortOrder: 120 },
+    { code: 'cargo-large', kind: 'vehicle', service: 'cargo', transport: 'Camión', title: 'Camión grande', description: 'Para cargas pesadas', priceCs: 40, currency: 'USD', pricingMode: 'flat', maxWeightKg: 2000, enabled: true, sortOrder: 130 },
+  ]
+
+  private seedServiceCatalog() {
+    const count = Number((this.db.prepare('SELECT COUNT(*) AS c FROM service_catalog').get() as { c: number }).c)
+    if (count > 0) return
+    const insert = this.db.prepare('INSERT INTO service_catalog (id, code, kind, service, transport, title, description, price_cs, currency, pricing_mode, max_weight_kg, max_passengers, enabled, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+    const now = new Date().toISOString()
+    this.serviceCatalogDefaults.forEach((item, index) => insert.run(`svc-${String(index + 1).padStart(3, '0')}`, item.code, item.kind, item.service, item.transport, item.title, item.description, item.priceCs, item.currency, item.pricingMode, item.maxWeightKg ?? null, item.maxPassengers ?? null, fromBool(item.enabled), item.sortOrder, now))
+  }
+
+  private serviceCatalogFromRow(row: Record<string, unknown>): ServiceCatalogItem {
+    return {
+      id: String(row.id),
+      code: String(row.code),
+      kind: row.kind as ServiceCatalogKind,
+      service: row.service as ServiceCatalogService,
+      transport: row.transport as ServiceCatalogItem['transport'],
+      title: String(row.title),
+      description: String(row.description ?? ''),
+      priceCs: Number(row.price_cs ?? 0),
+      currency: (String(row.currency ?? 'NIO') === 'USD' ? 'USD' : 'NIO'),
+      pricingMode: row.pricing_mode as ServiceCatalogPricing,
+      maxWeightKg: row.max_weight_kg === null || row.max_weight_kg === undefined ? undefined : Number(row.max_weight_kg),
+      maxPassengers: row.max_passengers === null || row.max_passengers === undefined ? undefined : Number(row.max_passengers),
+      enabled: Boolean(row.enabled),
+      sortOrder: Number(row.sort_order ?? 0),
+      updatedAt: String(row.updated_at ?? ''),
+    }
+  }
+
+  listServiceCatalog(filters: { service?: ServiceCatalogService; kind?: ServiceCatalogKind; transport?: ServiceCatalogItem['transport']; enabledOnly?: boolean } = {}): ServiceCatalogItem[] {
+    const where: string[] = []
+    const params: Array<string | number> = []
+    if (filters.service) { where.push('service = ?'); params.push(filters.service) }
+    if (filters.kind) { where.push('kind = ?'); params.push(filters.kind) }
+    if (filters.transport) { where.push('transport = ?'); params.push(filters.transport) }
+    if (filters.enabledOnly) { where.push('enabled = 1') }
+    const rows = this.db.prepare(`SELECT * FROM service_catalog ${where.length ? `WHERE ${where.join(' AND ')}` : ''} ORDER BY sort_order, title`).all(...params) as unknown as Array<Record<string, unknown>>
+    return rows.map((row) => this.serviceCatalogFromRow(row))
+  }
+
+  createServiceCatalog(input: Omit<ServiceCatalogItem, 'id' | 'updatedAt'>): ServiceCatalogItem {
+    if (!input.code?.trim() || !input.title?.trim()) throw new BadRequestException('Código y título son obligatorios')
+    const exists = this.db.prepare('SELECT id FROM service_catalog WHERE code = ?').get(input.code.trim())
+    if (exists) throw new BadRequestException('Ya existe una opción con ese código')
+    const item: ServiceCatalogItem = { ...input, id: `svc-${Date.now().toString(36)}`, code: input.code.trim(), title: input.title.trim(), description: input.description?.trim() ?? '', updatedAt: new Date().toISOString() }
+    this.db.prepare('INSERT INTO service_catalog (id, code, kind, service, transport, title, description, price_cs, currency, pricing_mode, max_weight_kg, max_passengers, enabled, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(item.id, item.code, item.kind, item.service, item.transport, item.title, item.description, item.priceCs, item.currency, item.pricingMode, item.maxWeightKg ?? null, item.maxPassengers ?? null, fromBool(item.enabled), item.sortOrder, item.updatedAt)
+    return item
+  }
+
+  updateServiceCatalog(id: string, partial: Partial<Omit<ServiceCatalogItem, 'id' | 'updatedAt'>>): ServiceCatalogItem {
+    const row = this.db.prepare('SELECT * FROM service_catalog WHERE id = ?').get(id) as unknown as Record<string, unknown> | undefined
+    if (!row) throw new NotFoundException('Configuración de servicio no encontrada')
+    const current = this.serviceCatalogFromRow(row)
+    const next: ServiceCatalogItem = { ...current, ...partial, title: partial.title?.trim() || current.title, code: partial.code?.trim() || current.code, description: partial.description?.trim() ?? current.description, updatedAt: new Date().toISOString() }
+    this.db.prepare('UPDATE service_catalog SET code = ?, kind = ?, service = ?, transport = ?, title = ?, description = ?, price_cs = ?, currency = ?, pricing_mode = ?, max_weight_kg = ?, max_passengers = ?, enabled = ?, sort_order = ?, updated_at = ? WHERE id = ?')
+      .run(next.code, next.kind, next.service, next.transport, next.title, next.description, next.priceCs, next.currency, next.pricingMode, next.maxWeightKg ?? null, next.maxPassengers ?? null, fromBool(next.enabled), next.sortOrder, next.updatedAt, id)
+    return next
+  }
+
+  deleteServiceCatalog(id: string): { deleted: boolean } {
+    const result = this.db.prepare('DELETE FROM service_catalog WHERE id = ?').run(id)
+    if (result.changes === 0) throw new NotFoundException('Configuración de servicio no encontrada')
     return { deleted: true }
   }
 
