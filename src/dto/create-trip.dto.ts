@@ -26,6 +26,14 @@ export class TripStopDto {
   @IsString()
   refs?: string
 
+  @IsOptional()
+  @IsString()
+  recipientName?: string
+
+  @IsOptional()
+  @IsString()
+  recipientPhone?: string
+
   @IsInt()
   @Min(1)
   order!: number

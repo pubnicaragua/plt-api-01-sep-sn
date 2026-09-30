@@ -12,6 +12,8 @@ export interface TripStop {
   longitude?: number
   refs?: string
   order: number
+  recipientName?: string
+  recipientPhone?: string
 }
 
 export interface TripOptionSelection {

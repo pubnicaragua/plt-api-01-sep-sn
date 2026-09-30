@@ -456,6 +456,7 @@ export class TarifasStore implements OnModuleDestroy {
     { code: 'cargo-waiting', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Espera en destino', description: 'El chofer espera', priceCs: 40, currency: 'USD', pricingMode: 'per_hour', enabled: true, sortOrder: 40 },
     { code: 'cargo-insurance', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Seguro', description: 'Asegura tu producto', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 50 },
     { code: 'cargo-more-trucks', kind: 'option', service: 'cargo', transport: 'Camión', title: '¿Más camiones?', description: 'Escoge tu producto', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 60 },
+    { code: 'cargo-refrigerated', kind: 'option', service: 'cargo', transport: 'Camión', title: 'Refrigerado', description: 'Para productos fríos', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 70 },
     { code: 'taxi-round-trip', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Ida y vuelta', description: 'Regreso al origen', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 10 },
     { code: 'taxi-insurance', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Seguro', description: 'Asegura a los pasajeros', priceCs: 40, currency: 'USD', pricingMode: 'flat', enabled: true, sortOrder: 20 },
     { code: 'taxi-waiting', kind: 'option', service: 'taxi', transport: 'Vehículo', title: 'Espera en destino', description: 'El chofer espera', priceCs: 40, currency: 'USD', pricingMode: 'per_hour', enabled: true, sortOrder: 30 },
@@ -472,7 +473,11 @@ export class TarifasStore implements OnModuleDestroy {
     if (count > 0) return
     const insert = this.db.prepare('INSERT INTO service_catalog (id, code, kind, service, transport, title, description, price_cs, currency, pricing_mode, max_weight_kg, max_passengers, enabled, sort_order, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     const now = new Date().toISOString()
-    this.serviceCatalogDefaults.forEach((item, index) => insert.run(`svc-${String(index + 1).padStart(3, '0')}`, item.code, item.kind, item.service, item.transport, item.title, item.description, item.priceCs, item.currency, item.pricingMode, item.maxWeightKg ?? null, item.maxPassengers ?? null, fromBool(item.enabled), item.sortOrder, now))
+    this.serviceCatalogDefaults.forEach((item, index) => {
+      const exists = this.db.prepare('SELECT id FROM service_catalog WHERE code = ?').get(item.code)
+      if (exists) return
+      insert.run(`svc-${String(index + 1).padStart(3, '0')}`, item.code, item.kind, item.service, item.transport, item.title, item.description, item.priceCs, item.currency, item.pricingMode, item.maxWeightKg ?? null, item.maxPassengers ?? null, fromBool(item.enabled), item.sortOrder, now)
+    })
   }
 
   private serviceCatalogFromRow(row: Record<string, unknown>): ServiceCatalogItem {
