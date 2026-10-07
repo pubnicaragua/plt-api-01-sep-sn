@@ -412,22 +412,22 @@ export class OperationsStore implements OnModuleDestroy {
       const isGeneral = row.scope === 'general' || (
         row.scope !== 'trip' && !trip && !driver
       ) || (
-        row.scope === 'trip' && ['', '—', '-', 'General'].includes(trip) && ['', '—', '-', 'Todos los conductores'].includes(driver)
-      )
+          row.scope === 'trip' && ['', '—', '-', 'General'].includes(trip) && ['', '—', '-', 'Todos los conductores'].includes(driver)
+        )
       return {
-      id: String(row.id),
-      scope: isGeneral ? 'general' as const : 'trip' as const,
-      trip,
-      driver,
-      client: String(row.client),
-      type: String(row.type),
-      priority: row.priority as Incident['priority'],
-      status: row.status as Incident['status'],
-      description: row.description?.toString(),
-      latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
-      longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
-      evidence: row.evidence?.toString() || undefined,
-      createdAt: Number(row.created_at ?? 0),
+        id: String(row.id),
+        scope: isGeneral ? 'general' as const : 'trip' as const,
+        trip,
+        driver,
+        client: String(row.client),
+        type: String(row.type),
+        priority: row.priority as Incident['priority'],
+        status: row.status as Incident['status'],
+        description: row.description?.toString(),
+        latitude: row.latitude === null || row.latitude === undefined ? undefined : Number(row.latitude),
+        longitude: row.longitude === null || row.longitude === undefined ? undefined : Number(row.longitude),
+        evidence: row.evidence?.toString() || undefined,
+        createdAt: Number(row.created_at ?? 0),
       }
     })
   }
@@ -1274,10 +1274,6 @@ export class OperationsStore implements OnModuleDestroy {
       }
       if (target.getTime() < now.getTime() - 60 * 1000) {
         throw new BadRequestException('No se puede programar un viaje en una fecha pasada')
-      }
-      const maxAhead = new Date(now.getTime() + 24 * 60 * 60 * 1000)
-      if (target.getTime() > maxAhead.getTime()) {
-        throw new BadRequestException('Los viajes programados no pueden superar las 24 horas')
       }
     }
 
