@@ -1,7 +1,7 @@
 import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
-import type { TripStatus } from './domain'
+import type { Trip, TripStatus } from './domain'
 import { AssignTripDto } from './dto/assign-trip.dto'
 import { CreateTripDto } from './dto/create-trip.dto'
 import { OperationsStore } from './operations.store'
@@ -18,7 +18,7 @@ class UpdateTripStatusDto {
 
 class UpdateTripPaymentDto {
   @IsOptional()
-  @IsIn(['Efectivo', 'Transferencia', 'Financiamiento', 'Contra entrega', ''])
+  @IsIn(['Efectivo', 'Transferencia', 'Tarjeta', 'Financiamiento', 'Contra entrega', ''])
   method?: string
 
   @IsOptional()
@@ -72,9 +72,9 @@ export class TripsController {
   updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto) { return this.store.updateTripStatus(id, body.status, body.reason) }
 
   @Patch(':id/payment')
-  @ApiOperation({ summary: 'Registrar el pago del viaje: efectivo, transferencia (cuenta/referencia), financiamiento o contra entrega; la fecha de cobro se calcula desde el crédito del cliente.' })
+  @ApiOperation({ summary: 'Registrar el pago del viaje: efectivo, transferencia, tarjeta, financiamiento o contra entrega; la fecha de cobro se calcula desde el crédito del cliente.' })
   updatePayment(@Param('id') id: string, @Body() body: UpdateTripPaymentDto) {
-    return this.store.updateTripPayment(id, { method: body.method as 'Efectivo', ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate })
+    return this.store.updateTripPayment(id, { method: body.method as Trip['paymentMethod'], ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate })
   }
 
   @Patch(':id/fare')

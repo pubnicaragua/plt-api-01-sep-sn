@@ -71,7 +71,7 @@ export interface Trip {
   isScheduled?: boolean
   weight?: number
   weightUnit?: 'kg' | 'lb'
-  paymentMethod?: 'Efectivo' | 'Transferencia' | 'Financiamiento' | 'Contra entrega' | ''
+  paymentMethod?: 'Efectivo' | 'Transferencia' | 'Tarjeta' | 'Financiamiento' | 'Contra entrega' | ''
   paymentRef?: string
   paymentAmount?: number
   paymentDate?: string
