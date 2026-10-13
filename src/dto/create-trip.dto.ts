@@ -201,4 +201,19 @@ export class CreateTripDto {
   @IsOptional()
   @IsIn(['kg', 'lb'])
   weightUnit?: 'kg' | 'lb'
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quotedBaseCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quotedAdditionalCs?: number
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  quotedServiceTotalCs?: number
 }

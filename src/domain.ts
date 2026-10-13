@@ -61,6 +61,9 @@ export interface Trip {
   stops?: TripStop[]
   options?: TripOptionSelection[]
   optionsTotalCs?: number
+  quotedBaseCs?: number
+  quotedAdditionalCs?: number
+  quotedServiceTotalCs?: number
   contactName?: string
   contactPhone?: string
   pickupTime?: string

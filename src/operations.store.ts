@@ -231,6 +231,9 @@ export class OperationsStore implements OnModuleDestroy {
     ['options_json', 'TEXT NOT NULL DEFAULT \'[]\''],
     ['stops_json', 'TEXT NOT NULL DEFAULT \'[]\''],
     ['options_total_cs', 'REAL NOT NULL DEFAULT 0'],
+    ['quoted_base_cs', 'REAL'],
+    ['quoted_additional_cs', 'REAL'],
+    ['quoted_service_total_cs', 'REAL'],
   ]
 
   private migrateTrips() {
@@ -608,6 +611,9 @@ export class OperationsStore implements OnModuleDestroy {
       options: this.parseTripJson<TripOptionSelection[]>(row.options_json, []),
       stops: this.parseTripJson<TripStop[]>(row.stops_json, []),
       optionsTotalCs: Number(row.options_total_cs ?? 0),
+      quotedBaseCs: row.quoted_base_cs === null || row.quoted_base_cs === undefined ? undefined : Number(row.quoted_base_cs),
+      quotedAdditionalCs: row.quoted_additional_cs === null || row.quoted_additional_cs === undefined ? undefined : Number(row.quoted_additional_cs),
+      quotedServiceTotalCs: row.quoted_service_total_cs === null || row.quoted_service_total_cs === undefined ? undefined : Number(row.quoted_service_total_cs),
       contactName: row.contact_name?.toString(),
       contactPhone: row.contact_phone?.toString(),
       pickupTime: row.pickup_time?.toString(),
@@ -1233,6 +1239,9 @@ export class OperationsStore implements OnModuleDestroy {
     returnTrip?: boolean
     stops?: TripStop[]
     options?: TripOptionSelection[]
+    quotedBaseCs?: number
+    quotedAdditionalCs?: number
+    quotedServiceTotalCs?: number
     autoAssign?: boolean
     contactName?: string
     contactPhone?: string
@@ -1284,7 +1293,8 @@ export class OperationsStore implements OnModuleDestroy {
         : 0
     const chargeableKm = Math.max(0, distanceKm - (rate.includedKm ?? 4))
     const baseCost = rate.baseFeeCs + chargeableKm * rate.farePerKmCs + LOGISTICS_SERVICE_FEE_CS + optionsTotalCs
-    const estimatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100), this.tarifas.getSettings().roundingCs)
+    const calculatedCostCs = roundFareCs(baseCost * (1 + surchargePct / 100), this.tarifas.getSettings().roundingCs)
+    const estimatedCostCs = input.quotedServiceTotalCs ?? calculatedCostCs
     const clientAccount = this.clients.find((candidate) => candidate.name.toLowerCase() === (input.client ?? '').toLowerCase())
     const dueDate = clientAccount && ((clientAccount.creditDays ?? 0) > 0 || (clientAccount.dueDay ?? 0) > 0)
       ? ((clientAccount.creditDays ?? 0) > 0 ? formatDateOffset(clientAccount.creditDays!) : collectOnDay(clientAccount.dueDay!))
@@ -1318,6 +1328,9 @@ export class OperationsStore implements OnModuleDestroy {
       options,
       stops,
       optionsTotalCs,
+      quotedBaseCs: input.quotedBaseCs,
+      quotedAdditionalCs: input.quotedAdditionalCs,
+      quotedServiceTotalCs: input.quotedServiceTotalCs,
       contactName: input.contactName,
       contactPhone: input.contactPhone,
       originRefs: input.originRefs,
@@ -1331,8 +1344,8 @@ export class OperationsStore implements OnModuleDestroy {
       weightUnit: input.weightUnit ?? 'kg',
     }
     this.trips.unshift(trip)
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, transport, service_mode, vehicle_variant, truck_type, passenger_count, return_trip, options_json, stops_json, options_total_cs, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled, weight, weight_unit) VALUES (' + Array.from({ length: 44 }, () => '?').join(', ') + ')')
-    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg')
+    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, transport, service_mode, vehicle_variant, truck_type, passenger_count, return_trip, options_json, stops_json, options_total_cs, quoted_base_cs, quoted_additional_cs, quoted_service_total_cs, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled, weight, weight_unit) VALUES (' + Array.from({ length: 47 }, () => '?').join(', ') + ')')
+    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.quotedBaseCs ?? null, trip.quotedAdditionalCs ?? null, trip.quotedServiceTotalCs ?? null, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg')
     this.recordHistory('Solicitud', 'Nueva solicitud recibida', `Viaje ${trip.id} · ${trip.client} · ${trip.packages} paquetes`, 'blue')
     if (input.autoAssign) {
       this.assignAutomatically(trip)
