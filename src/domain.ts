@@ -37,6 +37,7 @@ export interface Trip {
   date: string
   packages: number
   status: TripStatus
+  completedAt?: string
   latitude?: number
   longitude?: number
   description?: string

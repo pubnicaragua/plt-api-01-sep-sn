@@ -223,6 +223,7 @@ export class OperationsStore implements OnModuleDestroy {
     ['weight', 'REAL'],
     ['weight_unit', 'TEXT NOT NULL DEFAULT \'kg\''],
     ['cancel_reason', 'TEXT NOT NULL DEFAULT \'\''],
+    ['completed_at', 'TEXT NOT NULL DEFAULT \'\''],
     ['service_mode', 'TEXT NOT NULL DEFAULT \'Envíos\''],
     ['vehicle_variant', 'TEXT NOT NULL DEFAULT \'\''],
     ['truck_type', 'TEXT NOT NULL DEFAULT \'\''],
@@ -241,6 +242,7 @@ export class OperationsStore implements OnModuleDestroy {
     for (const [name, definition] of this.tripColumns) {
       if (!existing.has(name)) this.db.exec(`ALTER TABLE trips ADD COLUMN ${name} ${definition}`)
     }
+    this.db.prepare(`UPDATE trips SET completed_at = trip_date WHERE completed_at = '' AND status IN ('Completado', 'Entregado')`).run()
     this.db.exec('CREATE TABLE IF NOT EXISTS incoex_meta (key TEXT PRIMARY KEY, value TEXT)')
     if (!this.db.prepare('SELECT 1 AS present FROM incoex_meta WHERE key = ?').get('trip_cost_v1')) {
       this.db.prepare(`UPDATE trips SET cost_cs = ROUND(estimated_cost_cs * (0.55 + (CAST(ABS(RANDOM()) % 9 AS REAL) * 0.07)), 2) WHERE estimated_cost_cs > 0 AND cost_cs = 0`).run()
@@ -589,6 +591,7 @@ export class OperationsStore implements OnModuleDestroy {
       date: String(row.trip_date),
       packages: Number(row.packages),
       status: row.status as TripStatus,
+      completedAt: row.completed_at?.toString() || undefined,
       description: row.description?.toString(),
       recipientName: row.recipient_name?.toString(),
       recipientPhone: row.recipient_phone?.toString(),
@@ -649,8 +652,8 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, transport = ?, service_mode = ?, vehicle_variant = ?, truck_type = ?, passenger_count = ?, return_trip = ?, options_json = ?, stops_json = ?, options_total_cs = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
+    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, completed_at = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, transport = ?, service_mode = ?, vehicle_variant = ?, truck_type = ?, passenger_count = ?, return_trip = ?, options_json = ?, stops_json = ?, options_total_cs = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
+    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.completedAt ?? '', trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
   }
 
   onModuleDestroy() { this.db.close() }
@@ -1651,6 +1654,7 @@ export class OperationsStore implements OnModuleDestroy {
       }
     }
     trip.status = status
+    if (status === 'Completado') trip.completedAt = new Date().toISOString()
     if (status === 'Completado' && trip.driver !== 'Sin asignar') {
       const driver = this.drivers.find((candidate) => candidate.name === trip.driver)
       if (driver) {
