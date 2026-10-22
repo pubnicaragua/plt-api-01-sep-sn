@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, Headers } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { OperationsStore } from './operations.store'
 
@@ -8,8 +8,8 @@ export class HistoryController {
   constructor(private readonly store: OperationsStore) {}
 
   @Get()
-  list() {
-    return this.store.listHistory()
+  list(@Headers('authorization') authorization?: string) {
+    return this.store.listHistory(authorization)
   }
 }
 

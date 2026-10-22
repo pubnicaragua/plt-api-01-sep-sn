@@ -30,6 +30,7 @@ export type IncidentStatus = 'Abierta' | 'En proceso' | 'Resuelta'
 
 export interface Trip {
   id: string
+  profileId?: string
   client: string
   driver: string
   origin: string

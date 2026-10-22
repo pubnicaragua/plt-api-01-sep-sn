@@ -1,4 +1,5 @@
 ﻿import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy, UnauthorizedException } from '@nestjs/common'
+import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -76,7 +77,7 @@ function collectOnDay(day: number) {
 export class OperationsStore implements OnModuleDestroy {
   private readonly db: DatabaseSync
   private trips: Trip[]
-  private readonly sessions = new Map<string, { userId: string; email: string; role: string; createdAt: string }>()
+  private readonly sessions = new Map<string, { userId: string; email: string; role: string; profileId?: string; accountId?: string; createdAt: string }>()
 
   constructor(
     private readonly settings: SettingsStore,
@@ -90,6 +91,7 @@ export class OperationsStore implements OnModuleDestroy {
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS trips (
         id TEXT PRIMARY KEY,
+        profile_id TEXT,
         client TEXT NOT NULL,
         driver TEXT NOT NULL,
         origin TEXT NOT NULL,
@@ -101,9 +103,23 @@ export class OperationsStore implements OnModuleDestroy {
         recipient_name TEXT,
         recipient_phone TEXT,
         fragile INTEGER NOT NULL DEFAULT 0
-      )
+      );
+      CREATE TABLE IF NOT EXISTS company_profiles (
+        id TEXT PRIMARY KEY,
+        account_id TEXT NOT NULL,
+        username TEXT NOT NULL,
+        display_name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'operator' CHECK (role IN ('supervisor', 'operator')),
+        status TEXT NOT NULL DEFAULT 'Activo' CHECK (status IN ('Activo', 'Inactivo')),
+        password_hash TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE(account_id, username)
+      );
+      CREATE INDEX IF NOT EXISTS idx_profiles_account ON company_profiles(account_id)
     `)
     this.migrateTrips()
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_trips_profile ON trips(profile_id)')
     const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM trips').get() as { count: number }).count)
     if (count === 0) this.seedTrips()
     else this.ensureSeedTrips()
@@ -197,6 +213,7 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private readonly tripColumns: Array<[string, string]> = [
+    ['profile_id', 'TEXT'],
     ['origin_lat', 'REAL'],
     ['origin_lng', 'REAL'],
     ['destination_lat', 'REAL'],
@@ -584,6 +601,7 @@ export class OperationsStore implements OnModuleDestroy {
     const rows = this.db.prepare('SELECT * FROM trips ORDER BY rowid DESC').all() as unknown as Array<Record<string, unknown>>
     return rows.map((row) => ({
       id: String(row.id),
+      profileId: row.profile_id?.toString() || undefined,
       client: String(row.client),
       driver: String(row.driver),
       origin: String(row.origin),
@@ -652,22 +670,152 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   private persistTrip(trip: Trip) {
-    const update = this.db.prepare('UPDATE trips SET client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, completed_at = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, transport = ?, service_mode = ?, vehicle_variant = ?, truck_type = ?, passenger_count = ?, return_trip = ?, options_json = ?, stops_json = ?, options_total_cs = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
-    update.run(trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.completedAt ?? '', trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
+    const update = this.db.prepare('UPDATE trips SET profile_id = ?, client = ?, driver = ?, origin = ?, destination = ?, trip_date = ?, packages = ?, status = ?, completed_at = ?, description = ?, recipient_name = ?, recipient_phone = ?, fragile = ?, origin_lat = ?, origin_lng = ?, destination_lat = ?, destination_lng = ?, distance_km = ?, estimated_cost_cs = ?, service_type = ?, transport = ?, service_mode = ?, vehicle_variant = ?, truck_type = ?, passenger_count = ?, return_trip = ?, options_json = ?, stops_json = ?, options_total_cs = ?, contact_name = ?, contact_phone = ?, pickup_time = ?, origin_refs = ?, destination_refs = ?, payment_method = ?, payment_ref = ?, payment_amount = ?, payment_date = ?, payment_status = ?, due_date = ?, cost_cs = ?, scheduled_date = ?, scheduled_time = ?, is_scheduled = ?, weight = ?, weight_unit = ?, cancel_reason = ? WHERE id = ?')
+    update.run(trip.profileId ?? null, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.completedAt ?? '', trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.costCs ?? 0, trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg', trip.cancelReason ?? '', trip.id)
+  }
+
+  private ensureSupervisorProfile(user: { id: string; name: string; email: string; password_hash: string }) {
+    const existing = this.db.prepare("SELECT id FROM company_profiles WHERE account_id = ? AND role = 'supervisor'").get(user.id) as { id?: string } | undefined
+    if (existing?.id) {
+      this.db.prepare('UPDATE trips SET profile_id = ? WHERE profile_id IS NULL').run(String(existing.id))
+      return String(existing.id)
+    }
+    const now = new Date().toISOString()
+    const id = `profile-supervisor-${user.id}`
+    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, user.id, 'supervisor', user.name.trim() || user.email, 'supervisor', 'Activo', user.password_hash, now, now)
+    this.db.prepare('UPDATE trips SET profile_id = ? WHERE profile_id IS NULL').run(id)
+    return id
+  }
+
+  private findProfileLogin(identifier: string, password: string) {
+    const normalized = identifier.trim().toLowerCase()
+    const rows = (normalized.includes('@')
+      ? this.db.prepare("SELECT p.*, u.email, u.name AS account_name, u.status AS account_status FROM company_profiles p JOIN app_users u ON u.id = p.account_id WHERE lower(u.email) = ? AND p.status = 'Activo' AND u.status = 'Activo'").all(normalized)
+      : this.db.prepare("SELECT p.*, u.email, u.name AS account_name, u.status AS account_status FROM company_profiles p JOIN app_users u ON u.id = p.account_id WHERE lower(p.username) = ? AND p.status = 'Activo' AND u.status = 'Activo'").all(normalized)) as unknown as Array<Record<string, unknown>>
+    const matches = rows.filter((row) => verifyPassword(password, String(row.password_hash ?? '')))
+    if (matches.length > 1) throw new UnauthorizedException('Las credenciales corresponden a más de un perfil')
+    return matches[0]
+  }
+
+  private profileResponse(row: Record<string, unknown>, accessToken: string) {
+    return {
+      accessToken,
+      user: {
+        id: String(row.account_id),
+        email: String(row.email ?? ''),
+        role: 'corporate',
+        roleName: 'Usuario corporativo',
+        displayName: String(row.display_name ?? row.account_name ?? 'Perfil'),
+        companyName: String(row.account_name ?? ''),
+        profileId: String(row.id),
+        profileRole: String(row.role ?? 'operator'),
+        accountId: String(row.account_id),
+      },
+      profile: {
+        id: String(row.id),
+        accountId: String(row.account_id),
+        username: String(row.username),
+        displayName: String(row.display_name),
+        role: String(row.role),
+        status: String(row.status),
+      },
+    }
+  }
+
+  private sessionFromAuthorization(authorization?: string) {
+    const token = /^Bearer\s+(.+)$/i.exec(authorization ?? '')?.[1]?.trim()
+    if (!token) return undefined
+    const session = this.sessions.get(token)
+    if (!session || !this.checkSession(token).valid) return undefined
+    return { token, session }
+  }
+
+  getProfileScope(authorization?: string) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) return undefined
+    return {
+      accountId: active.session.accountId ?? active.session.userId,
+      profileId: active.session.profileId,
+      isSupervisor: active.session.profileId?.startsWith('profile-supervisor-') === true,
+    }
+  }
+
+  listCompanyProfiles(authorization?: string) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) throw new UnauthorizedException('Inicia sesión para consultar los perfiles')
+    if (active.session.role !== 'corporate' || active.session.profileId && active.session.profileId !== this.ensureSupervisorForSession(active.session)) {
+      throw new ForbiddenException('Solo el supervisor puede administrar perfiles')
+    }
+    const accountId = active.session.accountId ?? active.session.userId
+    return (this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE account_id = ? ORDER BY role DESC, display_name').all(accountId) as unknown as Array<Record<string, unknown>>)
+  }
+
+  private ensureSupervisorForSession(session: { userId: string; accountId?: string }) {
+    const row = this.db.prepare('SELECT id, name, email, password_hash FROM app_users WHERE id = ?').get(session.accountId ?? session.userId) as unknown as { id: string; name: string; email: string; password_hash: string } | undefined
+    if (!row) throw new UnauthorizedException('Cuenta empresarial no encontrada')
+    return this.ensureSupervisorProfile(row)
+  }
+
+  createCompanyProfile(authorization: string | undefined, input: { username: string; displayName: string; password: string }) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) throw new UnauthorizedException('Inicia sesión para crear perfiles')
+    const supervisorId = this.ensureSupervisorForSession(active.session)
+    if (active.session.profileId && active.session.profileId !== supervisorId) throw new ForbiddenException('Solo el supervisor puede crear perfiles')
+    const accountId = active.session.accountId ?? active.session.userId
+    const username = input.username.trim().toLowerCase()
+    const displayName = input.displayName.trim()
+    if (!username || !displayName || input.password.length < 8) throw new BadRequestException('El usuario, nombre y contraseña son obligatorios; la contraseña debe tener al menos 8 caracteres')
+    const existing = this.db.prepare('SELECT id FROM company_profiles WHERE lower(username) = ? AND role = \'operator\'').get(username)
+    if (existing) throw new ConflictException('Ese nombre de usuario ya existe')
+    const existingProfiles = this.db.prepare('SELECT password_hash FROM company_profiles WHERE account_id = ?').all(accountId) as unknown as Array<{ password_hash: string }>
+    if (existingProfiles.some((profile) => verifyPassword(input.password, profile.password_hash))) {
+      throw new ConflictException('La contraseña debe ser única dentro de la cuenta')
+    }
+    const now = new Date().toISOString()
+    const id = `profile-${Date.now().toString(36)}`
+    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, accountId, username, displayName, 'operator', 'Activo', hashPassword(input.password), now, now)
+    return { id, accountId, username, displayName, role: 'operator', status: 'Activo', createdAt: now, updatedAt: now }
+  }
+
+  updateCompanyProfile(authorization: string | undefined, id: string, input: { displayName?: string; password?: string; status?: 'Activo' | 'Inactivo' }) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) throw new UnauthorizedException('Inicia sesión para actualizar perfiles')
+    const supervisorId = this.ensureSupervisorForSession(active.session)
+    if (active.session.profileId && active.session.profileId !== supervisorId) throw new ForbiddenException('Solo el supervisor puede actualizar perfiles')
+    const accountId = active.session.accountId ?? active.session.userId
+    const profile = this.db.prepare('SELECT * FROM company_profiles WHERE id = ? AND account_id = ?').get(id, accountId) as unknown as Record<string, unknown> | undefined
+    if (!profile) throw new NotFoundException('Perfil no encontrado')
+    if (String(profile.role) === 'supervisor' && input.status === 'Inactivo') throw new BadRequestException('El supervisor principal no puede desactivarse')
+    if (input.password) {
+      const otherProfiles = this.db.prepare('SELECT password_hash FROM company_profiles WHERE account_id = ? AND id <> ?').all(accountId, id) as unknown as Array<{ password_hash: string }>
+      if (otherProfiles.some((candidate) => verifyPassword(input.password!, candidate.password_hash))) {
+        throw new ConflictException('La contraseña debe ser única dentro de la cuenta')
+      }
+    }
+    const now = new Date().toISOString()
+    this.db.prepare('UPDATE company_profiles SET display_name = ?, status = ?, password_hash = ?, updated_at = ? WHERE id = ?')
+      .run(input.displayName?.trim() || String(profile.display_name), input.status ?? String(profile.status), input.password ? hashPassword(input.password) : String(profile.password_hash), now, id)
+    if (input.status === 'Inactivo') {
+      for (const [token, session] of this.sessions) if (session.profileId === id) this.sessions.delete(token)
+    }
+    return this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE id = ?').get(id)
   }
 
   onModuleDestroy() { this.db.close() }
 
-  getSummary() {
+  getSummary(authorization?: string) {
+    const scopedTrips = this.listTrips(undefined, undefined, undefined, authorization)
     const activeStatuses = ['Asignado', 'En camino', 'En entrega']
-    const activeTrips = this.trips.filter((trip) => activeStatuses.includes(trip.status))
-    const pendingTrips = this.trips.filter((trip) => trip.status === 'Pendiente').length
+    const activeTrips = scopedTrips.filter((trip) => activeStatuses.includes(trip.status))
+    const pendingTrips = scopedTrips.filter((trip) => trip.status === 'Pendiente').length
     const today = freshDate(0)
     return {
-      tripsToday: this.trips.filter((trip) => trip.date === today).length,
+      tripsToday: scopedTrips.filter((trip) => trip.date === today).length,
       activeTrips: activeTrips.length,
       pendingTrips,
-      completedTrips: this.trips.filter((trip) => trip.date === today && trip.status === 'Completado').length,
+      completedTrips: scopedTrips.filter((trip) => trip.date === today && trip.status === 'Completado').length,
       activeDrivers: this.drivers.filter((driver) => driver.status !== 'Fuera de servicio').length,
       availableDrivers: this.drivers.filter((driver) => driver.status === 'Disponible').length,
       registeredClients: this.clients.length,
@@ -678,10 +826,24 @@ export class OperationsStore implements OnModuleDestroy {
     }
   }
 
-  listTrips(status?: TripStatus, driver?: string, client?: string) {
+  private tripVisibleToAuthorization(trip: Trip, authorization?: string) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active || active.session.role !== 'corporate') return true
+    if (active.session.profileId) {
+      const supervisorId = this.ensureSupervisorForSession(active.session)
+      if (active.session.profileId !== supervisorId) return trip.profileId === active.session.profileId
+    }
+    if (!trip.profileId) return true
+    const accountId = active.session.accountId ?? active.session.userId
+    const profile = this.db.prepare('SELECT 1 AS present FROM company_profiles WHERE id = ? AND account_id = ?').get(trip.profileId, accountId)
+    return Boolean(profile)
+  }
+
+  listTrips(status?: TripStatus, driver?: string, client?: string, authorization?: string) {
+    const scopedTrips = this.trips.filter((trip) => this.tripVisibleToAuthorization(trip, authorization))
     const driverFiltered = driver && driver !== 'undefined' && driver !== ''
-      ? this.trips.filter((trip) => trip.driver.toLowerCase() === driver.toLowerCase())
-      : this.trips
+      ? scopedTrips.filter((trip) => trip.driver.toLowerCase() === driver.toLowerCase())
+      : scopedTrips
     const clientFiltered = client && client !== 'undefined' && client !== ''
       ? driverFiltered.filter((trip) => trip.client.toLowerCase() === client.toLowerCase())
       : driverFiltered
@@ -719,9 +881,15 @@ export class OperationsStore implements OnModuleDestroy {
       return Boolean(forDriver || forClient)
     })
   }
-  listHistory() {
+  listHistory(authorization?: string) {
     const rows = this.db.prepare('SELECT id, event_time, event_date, type, title, detail, color FROM history_events ORDER BY created_at DESC LIMIT 500').all() as unknown as Array<Record<string, unknown>>
-    return rows.map((row) => ({ id: String(row.id), time: String(row.event_time), date: String(row.event_date), type: String(row.type), title: String(row.title), detail: String(row.detail), color: row.color as HistoryEvent['color'] }))
+    const scope = this.getProfileScope(authorization)
+    const allowedTripIds = scope?.profileId
+      ? new Set(this.listTrips(undefined, undefined, undefined, authorization).map((trip) => trip.id))
+      : undefined
+    return rows
+      .filter((row) => !allowedTripIds || Array.from(allowedTripIds).some((id) => String(row.detail).includes(id)))
+      .map((row) => ({ id: String(row.id), time: String(row.event_time), date: String(row.event_date), type: String(row.type), title: String(row.title), detail: String(row.detail), color: row.color as HistoryEvent['color'] }))
   }
 
   checkSession(token: string) {
@@ -731,6 +899,13 @@ export class OperationsStore implements OnModuleDestroy {
       if (row && String(row.session_state ?? 'Activa') !== 'Activa') {
         this.sessions.delete(token)
         return { valid: false, reason: 'revoked' }
+      }
+      if (session.profileId) {
+        const profile = this.db.prepare('SELECT status FROM company_profiles WHERE id = ?').get(session.profileId) as unknown as { status?: string } | undefined
+        if (!profile || profile.status !== 'Activo') {
+          this.sessions.delete(token)
+          return { valid: false, reason: 'profile_inactive' }
+        }
       }
       return { valid: true, name: String(row?.name ?? session.email), role: String(row?.role ?? session.role), sessionState: row ? String(row.session_state ?? 'Activa') : 'Activa' }
     }
@@ -1220,6 +1395,7 @@ export class OperationsStore implements OnModuleDestroy {
   }
 
   createTrip(input: {
+    profileId?: string
     client: string
     origin: string
     destination: string
@@ -1304,6 +1480,7 @@ export class OperationsStore implements OnModuleDestroy {
       : ''
     const trip: Trip = {
       id: `#${nextNumber}`,
+      profileId: input.profileId,
       client: input.client,
       driver: 'Sin asignar',
       origin: input.origin,
@@ -1347,8 +1524,8 @@ export class OperationsStore implements OnModuleDestroy {
       weightUnit: input.weightUnit ?? 'kg',
     }
     this.trips.unshift(trip)
-    const insert = this.db.prepare('INSERT INTO trips (id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, transport, service_mode, vehicle_variant, truck_type, passenger_count, return_trip, options_json, stops_json, options_total_cs, quoted_base_cs, quoted_additional_cs, quoted_service_total_cs, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled, weight, weight_unit) VALUES (' + Array.from({ length: 47 }, () => '?').join(', ') + ')')
-    insert.run(trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.quotedBaseCs ?? null, trip.quotedAdditionalCs ?? null, trip.quotedServiceTotalCs ?? null, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg')
+    const insert = this.db.prepare('INSERT INTO trips (profile_id, id, client, driver, origin, destination, trip_date, packages, status, description, recipient_name, recipient_phone, fragile, origin_lat, origin_lng, destination_lat, destination_lng, distance_km, estimated_cost_cs, service_type, transport, service_mode, vehicle_variant, truck_type, passenger_count, return_trip, options_json, stops_json, options_total_cs, quoted_base_cs, quoted_additional_cs, quoted_service_total_cs, contact_name, contact_phone, pickup_time, origin_refs, destination_refs, payment_method, payment_ref, payment_amount, payment_date, payment_status, due_date, scheduled_date, scheduled_time, is_scheduled, weight, weight_unit) VALUES (' + Array.from({ length: 48 }, () => '?').join(', ') + ')')
+    insert.run(trip.profileId ?? null, trip.id, trip.client, trip.driver, trip.origin, trip.destination, trip.date, trip.packages, trip.status, trip.description ?? null, trip.recipientName ?? null, trip.recipientPhone ?? null, trip.fragile ? 1 : 0, trip.originLat ?? null, trip.originLng ?? null, trip.destinationLat ?? null, trip.destinationLng ?? null, trip.distanceKm ?? null, trip.estimatedCostCs ?? null, trip.serviceType ?? 'Urbano', trip.transport ?? 'Vehículo', trip.serviceMode ?? 'Envíos', trip.vehicleVariant ?? '', trip.truckType ?? '', trip.passengerCount ?? 1, trip.returnTrip ? 1 : 0, JSON.stringify(trip.options ?? []), JSON.stringify(trip.stops ?? []), trip.optionsTotalCs ?? 0, trip.quotedBaseCs ?? null, trip.quotedAdditionalCs ?? null, trip.quotedServiceTotalCs ?? null, trip.contactName ?? '', trip.contactPhone ?? '', trip.pickupTime ?? '', trip.originRefs ?? '', trip.destinationRefs ?? '', trip.paymentMethod ?? '', trip.paymentRef ?? '', trip.paymentAmount ?? 0, trip.paymentDate ?? '', trip.paymentStatus ?? 'Sin pagar', trip.dueDate ?? '', trip.scheduledDate ?? '', trip.scheduledTime ?? '', trip.isScheduled ? 1 : 0, trip.weight ?? null, trip.weightUnit ?? 'kg')
     this.recordHistory('Solicitud', 'Nueva solicitud recibida', `Viaje ${trip.id} · ${trip.client} · ${trip.packages} paquetes`, 'blue')
     if (input.autoAssign) {
       this.assignAutomatically(trip)
@@ -1368,6 +1545,28 @@ export class OperationsStore implements OnModuleDestroy {
     else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
     else trip.paymentStatus = 'Sin pagar'
     this.persistTrip(trip)
+    return trip
+  }
+
+  updateTripSchedule(id: string, scheduledDate: string, scheduledTime: string) {
+    const trip = this.getTrip(id)
+    const scheduled = trip.isScheduled || trip.serviceType === 'Programado'
+    if (!scheduled) throw new BadRequestException('Este viaje no está programado')
+    if (!['Pendiente', 'Asignado'].includes(trip.status)) {
+      throw new BadRequestException('Este viaje ya está activo y no se puede editar')
+    }
+    const target = parseManaguaSchedule(scheduledDate, scheduledTime)
+    if (!target || Number.isNaN(target.getTime())) {
+      throw new BadRequestException('La fecha u hora programada es inválida')
+    }
+    if (target.getTime() - Date.now() <= 60 * 60 * 1000) {
+      throw new BadRequestException('No se puede editar un viaje programado dentro de la última hora')
+    }
+    trip.scheduledDate = scheduledDate
+    trip.scheduledTime = scheduledTime
+    trip.isScheduled = true
+    this.persistTrip(trip)
+    this.recordHistory('Cambio de programación', `Viaje reprogramado`, `Viaje ${trip.id} · ${scheduledDate} ${scheduledTime}`, 'blue')
     return trip
   }
 
@@ -1400,10 +1599,25 @@ export class OperationsStore implements OnModuleDestroy {
   login(input: { email: string; password?: string; role: 'company' | 'driver' | 'admin' }) {
     const normalized = input.email.trim().toLowerCase()
     const panelUser = this.db.prepare('SELECT id, name, email, phone, role, status, session_state, password_hash FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string; name: string; email: string; phone: string; role: string; status: string; session_state?: string; password_hash: string } | undefined
+    if (!panelUser && input.password) {
+      const profile = this.findProfileLogin(normalized, input.password)
+      if (profile) {
+        const accessToken = this.issueSession(String(profile.account_id), String(profile.email), 'corporate', String(profile.id), String(profile.account_id))
+        return this.profileResponse(profile, accessToken)
+      }
+      if (!normalized.includes('@')) throw new UnauthorizedException('Credenciales incorrectas para este perfil')
+    }
     const stored = panelUser
     if (panelUser && panelUser.status !== 'Activo') throw new UnauthorizedException('Este usuario está inactivo; solicita que un administrador lo active')
     if (stored && stored.password_hash) {
       if (!input.password || !verifyPassword(input.password, stored.password_hash)) {
+        if (panelUser?.role === 'corporate' && input.password) {
+          const profile = this.findProfileLogin(normalized, input.password)
+          if (profile) {
+            const accessToken = this.issueSession(String(profile.account_id), String(profile.email), 'corporate', String(profile.id), String(profile.account_id))
+            return this.profileResponse(profile, accessToken)
+          }
+        }
         throw new UnauthorizedException('Credenciales incorrectas para este usuario')
       }
     }
@@ -1413,6 +1627,9 @@ export class OperationsStore implements OnModuleDestroy {
       'conductor@incoex.com.ni': 'drv-006',
     }
     const effectiveRole = panelUser?.role ?? input.role
+    const supervisorProfileId = panelUser?.role === 'corporate'
+      ? this.ensureSupervisorProfile(panelUser)
+      : undefined
     const clientAccount = this.clients.find((candidate) =>
       candidate.email.trim().toLowerCase() === normalized,
     )
@@ -1423,7 +1640,7 @@ export class OperationsStore implements OnModuleDestroy {
     if (revoked && String((revoked as { session_state: string }).session_state) === 'Cerrada') {
       this.db.prepare('UPDATE app_users SET session_state = ? WHERE id = ?').run('Activa', userId)
     }
-    const accessToken = this.issueSession(userId, normalized, effectiveRole)
+    const accessToken = this.issueSession(userId, normalized, effectiveRole, supervisorProfileId, panelUser?.role === 'corporate' ? userId : undefined)
     let permissions: string[] = []
     try {
       const roleRow = this.db.prepare('SELECT permissions_json FROM role_permissions WHERE code = ?').get(effectiveRole) as unknown as { permissions_json?: string } | undefined
@@ -1443,13 +1660,24 @@ export class OperationsStore implements OnModuleDestroy {
         plate: driver?.plate,
         phone: panelUser?.phone ?? driver?.phone,
         permissions,
+        profileId: supervisorProfileId,
+        profileRole: supervisorProfileId ? 'supervisor' : undefined,
+        accountId: supervisorProfileId ? userId : undefined,
       },
+      profile: supervisorProfileId ? {
+        id: supervisorProfileId,
+        accountId: userId,
+        username: 'supervisor',
+        displayName: panelUser?.name ?? 'Supervisor',
+        role: 'supervisor',
+        status: 'Activo',
+      } : undefined,
     }
   }
 
-  private issueSession(userId: string, email: string, role: string) {
+  private issueSession(userId: string, email: string, role: string, profileId?: string, accountId?: string) {
     const token = `sess_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 14)}`
-    this.sessions.set(token, { userId, email, role, createdAt: new Date().toISOString() })
+    this.sessions.set(token, { userId, email, role, profileId, accountId, createdAt: new Date().toISOString() })
     return token
   }
 
@@ -1502,9 +1730,13 @@ export class OperationsStore implements OnModuleDestroy {
       : undefined
     const role = input.role === 'company' ? 'corporate' : 'driver'
     const id = `usr-${String(Date.now()).slice(-8)}`
+    const passwordHash = hashPassword(input.password)
     this.db.prepare('INSERT INTO app_users (id, name, email, phone, role, status, last_login, password_hash) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, name, email, phone, role, 'Activo', 'Sin accesos registrados', hashPassword(input.password))
-    const accessToken = this.issueSession(id, email, role)
+      .run(id, name, email, phone, role, 'Activo', 'Sin accesos registrados', passwordHash)
+    const supervisorProfileId = role === 'corporate'
+      ? this.ensureSupervisorProfile({ id, name, email, password_hash: passwordHash })
+      : undefined
+    const accessToken = this.issueSession(id, email, role, supervisorProfileId, supervisorProfileId ? id : undefined)
     return {
       accessToken,
       user: {
@@ -1515,6 +1747,9 @@ export class OperationsStore implements OnModuleDestroy {
         displayName: name,
         companyName: client?.name,
         phone,
+        profileId: supervisorProfileId,
+        profileRole: supervisorProfileId ? 'supervisor' : undefined,
+        accountId: supervisorProfileId ? id : undefined,
       },
       profile: {
         id,
@@ -1530,9 +1765,10 @@ export class OperationsStore implements OnModuleDestroy {
     }
   }
 
-  getTrip(id: string) {
+  getTrip(id: string, authorization?: string) {
     const trip = this.trips.find((candidate) => candidate.id === id || candidate.id === `#${id.replace('#', '')}`)
     if (!trip) throw new NotFoundException('Viaje no encontrado')
+    if (!this.tripVisibleToAuthorization(trip, authorization)) throw new ForbiddenException('No tienes acceso a este viaje')
     return trip
   }
 
@@ -1644,6 +1880,13 @@ export class OperationsStore implements OnModuleDestroy {
     const normalizedReason = String(reason ?? '').trim()
     if ((status === 'Cancelado' || status === 'Anulado') && normalizedReason.length < 5) {
       throw new BadRequestException('Debes indicar el motivo de cancelación o anulación del viaje')
+    }
+    if (status === 'Cancelado' || status === 'Anulado') {
+      const scheduled = trip.isScheduled || trip.serviceType === 'Programado'
+      const target = scheduled ? parseManaguaSchedule(trip.scheduledDate, trip.scheduledTime) : null
+      if (target && target.getTime() - Date.now() <= 60 * 60 * 1000) {
+        throw new BadRequestException('No se puede cancelar un viaje programado dentro de la última hora')
+      }
     }
     if ((status === 'Cancelado' || status === 'Anulado') && trip.driver !== 'Sin asignar') {
       const driver = this.drivers.find((candidate) => candidate.name === trip.driver)

@@ -1,4 +1,4 @@
-import { Controller, Get, Param } from '@nestjs/common'
+import { Controller, Get, Headers, Param } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { OperationsStore } from './operations.store'
 
@@ -13,7 +13,8 @@ export class TrackingController {
   }
 
   @Get(':id')
-  live(@Param('id') id: string) {
+  live(@Param('id') id: string, @Headers('authorization') authorization?: string) {
+    this.store.getTrip(id, authorization)
     return this.store.getTracking(id)
   }
 }

@@ -1,4 +1,4 @@
-import { Controller, Get } from '@nestjs/common'
+import { Controller, Get, Headers } from '@nestjs/common'
 import { ApiTags } from '@nestjs/swagger'
 import { OperationsStore } from './operations.store'
 
@@ -8,5 +8,5 @@ export class DashboardController {
   constructor(private readonly store: OperationsStore) {}
 
   @Get('summary')
-  getSummary() { return this.store.getSummary() }
+  getSummary(@Headers('authorization') authorization?: string) { return this.store.getSummary(authorization) }
 }

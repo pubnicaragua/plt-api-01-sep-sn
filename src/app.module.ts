@@ -30,6 +30,7 @@ import { WhatsAppController } from './whatsapp.controller'
 import { TarifasController } from './tarifas.controller'
 import { TarifasStore } from './tarifas.store'
 import { MapsRoutingService } from './maps-routing.service'
+import { ProfilesController } from './profiles.controller'
 
 @Module({
   controllers: [
@@ -54,6 +55,7 @@ import { MapsRoutingService } from './maps-routing.service'
     WhatsAppController,
     FuelController,
     TarifasController,
+    ProfilesController,
   ],
   providers: [OperationsStore, DeliverablesStore, VehiclesStore, UsersStore, SettingsStore, FinanceStore, CortesStore, FuelStore, TarifasStore, MapsRoutingService],
 })
