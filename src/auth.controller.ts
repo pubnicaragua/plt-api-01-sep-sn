@@ -1,8 +1,19 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common'
+import { Body, Controller, Get, Headers, Param, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
+import { IsNotEmpty, IsString, MinLength } from 'class-validator'
 import { LoginDto } from './dto/login.dto'
 import { RegisterDto } from './dto/register.dto'
 import { OperationsStore } from './operations.store'
+
+class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  currentPassword!: string
+
+  @IsString()
+  @MinLength(8)
+  newPassword!: string
+}
 
 @ApiTags('auth')
 @Controller('auth')
@@ -13,6 +24,15 @@ export class AuthController {
   @ApiOperation({ summary: 'Login de prototipo por rol' })
   login(@Body() body: LoginDto) {
     return this.store.login(body)
+  }
+
+  @Post('change-password')
+  @ApiOperation({ summary: 'Cambiar la contraseña del perfil activo' })
+  changePassword(
+    @Headers('authorization') authorization: string | undefined,
+    @Body() body: ChangePasswordDto,
+  ) {
+    return this.store.changeOwnPassword(authorization, body)
   }
 
   @Get('session/:token')

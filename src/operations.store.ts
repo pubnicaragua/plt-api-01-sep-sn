@@ -803,6 +803,32 @@ export class OperationsStore implements OnModuleDestroy {
     return this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE id = ?').get(id)
   }
 
+  changeOwnPassword(authorization: string | undefined, input: { currentPassword: string; newPassword: string }) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) throw new UnauthorizedException('Inicia sesión para cambiar tu contraseña')
+    const profileId = active.session.profileId
+    if (!profileId) throw new ForbiddenException('La sesión no tiene un perfil activo')
+    if (!input.currentPassword || input.newPassword.length < 8) {
+      throw new BadRequestException('La contraseña actual y la nueva contraseña son obligatorias')
+    }
+    const accountId = active.session.accountId ?? active.session.userId
+    const profile = this.db.prepare('SELECT * FROM company_profiles WHERE id = ? AND account_id = ?').get(profileId, accountId) as unknown as Record<string, unknown> | undefined
+    if (!profile) throw new NotFoundException('Perfil activo no encontrado')
+    if (!verifyPassword(input.currentPassword, String(profile.password_hash ?? ''))) {
+      throw new UnauthorizedException('La contraseña actual no es correcta')
+    }
+    if (verifyPassword(input.newPassword, String(profile.password_hash ?? ''))) {
+      throw new BadRequestException('La nueva contraseña debe ser diferente a la actual')
+    }
+    const otherProfiles = this.db.prepare('SELECT password_hash FROM company_profiles WHERE account_id = ? AND id <> ?').all(accountId, profileId) as unknown as Array<{ password_hash: string }>
+    if (otherProfiles.some((candidate) => verifyPassword(input.newPassword, candidate.password_hash))) {
+      throw new ConflictException('La contraseña debe ser única dentro de la cuenta')
+    }
+    this.db.prepare('UPDATE company_profiles SET password_hash = ?, updated_at = ? WHERE id = ? AND account_id = ?')
+      .run(hashPassword(input.newPassword), new Date().toISOString(), profileId, accountId)
+    return { ok: true }
+  }
+
   onModuleDestroy() { this.db.close() }
 
   getSummary(authorization?: string) {
