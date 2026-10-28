@@ -1,5 +1,6 @@
 export type TripStatus = 'Pendiente' | 'Asignado' | 'En camino' | 'En entrega' | 'Completado' | 'Cancelado' | 'Anulado'
 export type TripServiceMode = 'Envíos' | 'Taxi Privado'
+export type TripTransport = 'Moto' | 'Vehículo' | 'Pickup' | 'VAN' | 'Camión'
 export type TripOptionKind = 'option' | 'vehicle'
 export type TripOptionService = 'delivery' | 'taxi' | 'cargo'
 export type TripOptionPricing = 'flat' | 'per_km' | 'per_hour'
@@ -55,7 +56,7 @@ export interface Trip {
   profitCs?: number
   serviceType?: 'Urbano' | 'Express' | 'Programado'
   serviceMode?: TripServiceMode
-  transport?: 'Moto' | 'Vehículo' | 'Camión'
+  transport?: TripTransport
   vehicleVariant?: string
   truckType?: string
   passengerCount?: number
@@ -83,6 +84,17 @@ export interface Trip {
   paymentStatus?: 'Sin pagar' | 'Parcial' | 'Pagado'
   dueDate?: string
   cancelReason?: string
+}
+
+export const VEHICLE_MAX_WEIGHT_KG: Partial<Record<TripTransport, number>> = {
+  Moto: 10,
+  Vehículo: 400,
+  VAN: 650,
+  Pickup: 900,
+}
+
+export function maxWeightKgForTransport(transport?: TripTransport) {
+  return transport ? VEHICLE_MAX_WEIGHT_KG[transport] : undefined
 }
 
 export interface AppNotification {

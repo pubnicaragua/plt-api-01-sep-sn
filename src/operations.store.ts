@@ -3,7 +3,8 @@ import { ConflictException, ForbiddenException } from '@nestjs/common'
 import { mkdirSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
-import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripOptionSelection, TripStop, TripStatus } from './domain'
+import { maxWeightKgForTransport } from './domain'
+import type { Client, Driver, HistoryEvent, Incident, ReportSummary, Trip, TripOptionSelection, TripStop, TripStatus, TripTransport } from './domain'
 import { hashPassword, verifyPassword } from './users.store'
 import { SettingsStore } from './settings.store'
 import { VehiclesStore } from './vehicles.store'
@@ -1437,7 +1438,7 @@ export class OperationsStore implements OnModuleDestroy {
     distanceKm?: number
     serviceType?: 'Urbano' | 'Express' | 'Programado'
     serviceMode?: 'Envíos' | 'Taxi Privado'
-    transport?: 'Moto' | 'Vehículo' | 'Camión'
+    transport?: TripTransport
     vehicleVariant?: string
     truckType?: string
     passengerCount?: number
@@ -1463,6 +1464,15 @@ export class OperationsStore implements OnModuleDestroy {
     const rate = this.settings.getVehicleRate(input.transport ?? 'Vehículo')
     const serviceMode = input.serviceMode ?? 'Envíos'
     const settings = this.settings.get()
+    const weightKg = input.weight === undefined
+      ? undefined
+      : input.weightUnit === 'lb'
+        ? input.weight / 2.20462
+        : input.weight
+    const maxWeightKg = maxWeightKgForTransport(input.transport)
+    if (weightKg !== undefined && maxWeightKg !== undefined && weightKg > maxWeightKg) {
+      throw new BadRequestException(`El peso de ${weightKg.toFixed(1)} kg supera la capacidad del servicio ${input.transport} (${maxWeightKg} kg)`)
+    }
     if (serviceMode === 'Taxi Privado' && input.transport !== 'Vehículo') {
       throw new BadRequestException('El taxi privado requiere transporte Vehículo')
     }

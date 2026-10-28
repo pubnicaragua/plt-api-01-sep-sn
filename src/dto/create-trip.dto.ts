@@ -129,8 +129,8 @@ export class CreateTripDto {
   serviceMode?: 'Envíos' | 'Taxi Privado'
 
   @IsOptional()
-  @IsIn(['Moto', 'Vehículo', 'Camión'])
-  transport?: 'Moto' | 'Vehículo' | 'Camión'
+  @IsIn(['Moto', 'Vehículo', 'Pickup', 'VAN', 'Camión'])
+  transport?: 'Moto' | 'Vehículo' | 'Pickup' | 'VAN' | 'Camión'
 
   @IsOptional()
   @IsString()

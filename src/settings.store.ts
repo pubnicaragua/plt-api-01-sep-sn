@@ -109,9 +109,10 @@ export class SettingsStore implements OnModuleDestroy {
     return merged
   }
 
-  getVehicleRate(vehicle: 'Moto' | 'Vehículo' | 'Camión'): VehicleRate {
+  getVehicleRate(vehicle: 'Moto' | 'Vehículo' | 'Pickup' | 'VAN' | 'Camión'): VehicleRate {
     const rates = this.get().vehicleRates
-    return rates[vehicle] ?? DEFAULTS.vehicleRates.Vehículo
+    const rateKey = vehicle === 'Pickup' || vehicle === 'VAN' ? 'Vehículo' : vehicle
+    return rates[rateKey] ?? DEFAULTS.vehicleRates.Vehículo
   }
 
   update(patch: SettingsPatch): AppSettings {
