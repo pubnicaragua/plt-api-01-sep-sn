@@ -1,6 +1,6 @@
 import { Body, Controller, Get, Headers, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
-import { IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
+import { IsBoolean, IsIn, IsNotEmpty, IsOptional, IsString, MinLength } from 'class-validator'
 import { OperationsStore } from './operations.store'
 
 class CreateProfileDto {
@@ -31,6 +31,10 @@ class UpdateProfileDto {
   @IsOptional()
   @IsIn(['Activo', 'Inactivo'])
   status?: 'Activo' | 'Inactivo'
+
+  @IsOptional()
+  @IsBoolean()
+  canPayInvoices?: boolean
 }
 
 @ApiTags('profiles')

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsBoolean, IsEmail, IsNotEmpty, IsNumber, IsOptional, IsString, Max, Min, ValidateIf } from 'class-validator'
 import { OperationsStore } from './operations.store'
@@ -194,6 +194,12 @@ class UpdateDriverDto {
 @Controller('drivers')
 export class DriversController {
   constructor(private readonly store: OperationsStore) {}
+
+  @Get('me')
+  @ApiOperation({ summary: 'Datos del conductor autenticado para la app móvil' })
+  me(@Headers('authorization') authorization: string | undefined) {
+    return this.store.getCurrentDriver(authorization)
+  }
 
   @Get()
   @ApiOperation({ summary: 'Conductores con disponibilidad, vehículo y posición' })

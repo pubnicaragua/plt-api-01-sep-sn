@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common'
+import { Body, Controller, Get, Headers, Param, Post, Query } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsNumber, IsOptional, IsString, Min } from 'class-validator'
 import { CortesStore } from './cortes.store'
@@ -55,7 +55,8 @@ export class CortesController {
 
   @Post(':id/pay')
   @ApiOperation({ summary: 'Registrar pago del corte' })
-  pay(@Param('id') id: string, @Body() dto: PayCorteDto) {
+  pay(@Headers('authorization') authorization: string | undefined, @Param('id') id: string, @Body() dto: PayCorteDto) {
+    this.operations.assertCanPayInvoices(authorization)
     return this.cortes.markPaid(id, dto)
   }
 

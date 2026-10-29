@@ -26,6 +26,10 @@ const ES_MONTHS: Record<string, string> = {
 
 const LOGISTICS_SERVICE_FEE_CS = 15
 
+export function profileCanPayInvoices(role: string | undefined, canPayInvoices: boolean | number | undefined) {
+  return role === 'supervisor' || canPayInvoices === true || canPayInvoices === 1
+}
+
 function parseManaguaSchedule(dateText: string | undefined, timeText: string | undefined): Date | null {
   const dateMatch = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(dateText ?? '').trim())
   const timeMatch = /^(\d{2}):(\d{2})$/.exec(String(timeText ?? '00:00').trim())
@@ -112,6 +116,7 @@ export class OperationsStore implements OnModuleDestroy {
         display_name TEXT NOT NULL,
         role TEXT NOT NULL DEFAULT 'operator' CHECK (role IN ('supervisor', 'operator')),
         status TEXT NOT NULL DEFAULT 'Activo' CHECK (status IN ('Activo', 'Inactivo')),
+        can_pay_invoices INTEGER NOT NULL DEFAULT 0,
         password_hash TEXT NOT NULL,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -119,6 +124,10 @@ export class OperationsStore implements OnModuleDestroy {
       );
       CREATE INDEX IF NOT EXISTS idx_profiles_account ON company_profiles(account_id)
     `)
+    const profileColumns = this.db.prepare('PRAGMA table_info(company_profiles)').all() as unknown as Array<{ name?: string }>
+    if (!profileColumns.some((column) => String(column.name ?? '') === 'can_pay_invoices')) {
+      this.db.exec('ALTER TABLE company_profiles ADD COLUMN can_pay_invoices INTEGER NOT NULL DEFAULT 0')
+    }
     this.migrateTrips()
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_trips_profile ON trips(profile_id)')
     const count = Number((this.db.prepare('SELECT COUNT(*) AS count FROM trips').get() as { count: number }).count)
@@ -683,8 +692,8 @@ export class OperationsStore implements OnModuleDestroy {
     }
     const now = new Date().toISOString()
     const id = `profile-supervisor-${user.id}`
-    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, user.id, 'supervisor', user.name.trim() || user.email, 'supervisor', 'Activo', user.password_hash, now, now)
+    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, can_pay_invoices, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, user.id, 'supervisor', user.name.trim() || user.email, 'supervisor', 'Activo', 1, user.password_hash, now, now)
     this.db.prepare('UPDATE trips SET profile_id = ? WHERE profile_id IS NULL').run(id)
     return id
   }
@@ -711,6 +720,7 @@ export class OperationsStore implements OnModuleDestroy {
         profileId: String(row.id),
         profileRole: String(row.role ?? 'operator'),
         accountId: String(row.account_id),
+        canPayInvoices: profileCanPayInvoices(String(row.role ?? 'operator'), row.can_pay_invoices as boolean | number | undefined),
       },
       profile: {
         id: String(row.id),
@@ -719,6 +729,7 @@ export class OperationsStore implements OnModuleDestroy {
         displayName: String(row.display_name),
         role: String(row.role),
         status: String(row.status),
+        canPayInvoices: profileCanPayInvoices(String(row.role), row.can_pay_invoices as boolean | number | undefined),
       },
     }
   }
@@ -748,7 +759,7 @@ export class OperationsStore implements OnModuleDestroy {
       throw new ForbiddenException('Solo el supervisor puede administrar perfiles')
     }
     const accountId = active.session.accountId ?? active.session.userId
-    return (this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE account_id = ? ORDER BY role DESC, display_name').all(accountId) as unknown as Array<Record<string, unknown>>)
+    return (this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, can_pay_invoices AS canPayInvoices, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE account_id = ? ORDER BY role DESC, display_name').all(accountId) as unknown as Array<Record<string, unknown>>)
   }
 
   private ensureSupervisorForSession(session: { userId: string; accountId?: string }) {
@@ -774,12 +785,12 @@ export class OperationsStore implements OnModuleDestroy {
     }
     const now = new Date().toISOString()
     const id = `profile-${Date.now().toString(36)}`
-    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, accountId, username, displayName, 'operator', 'Activo', hashPassword(input.password), now, now)
-    return { id, accountId, username, displayName, role: 'operator', status: 'Activo', createdAt: now, updatedAt: now }
+    this.db.prepare('INSERT INTO company_profiles (id, account_id, username, display_name, role, status, can_pay_invoices, password_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, accountId, username, displayName, 'operator', 'Activo', 0, hashPassword(input.password), now, now)
+    return { id, accountId, username, displayName, role: 'operator', status: 'Activo', canPayInvoices: false, createdAt: now, updatedAt: now }
   }
 
-  updateCompanyProfile(authorization: string | undefined, id: string, input: { displayName?: string; password?: string; status?: 'Activo' | 'Inactivo' }) {
+  updateCompanyProfile(authorization: string | undefined, id: string, input: { displayName?: string; password?: string; status?: 'Activo' | 'Inactivo'; canPayInvoices?: boolean }) {
     const active = this.sessionFromAuthorization(authorization)
     if (!active) throw new UnauthorizedException('Inicia sesión para actualizar perfiles')
     const supervisorId = this.ensureSupervisorForSession(active.session)
@@ -795,12 +806,30 @@ export class OperationsStore implements OnModuleDestroy {
       }
     }
     const now = new Date().toISOString()
-    this.db.prepare('UPDATE company_profiles SET display_name = ?, status = ?, password_hash = ?, updated_at = ? WHERE id = ?')
-      .run(input.displayName?.trim() || String(profile.display_name), input.status ?? String(profile.status), input.password ? hashPassword(input.password) : String(profile.password_hash), now, id)
+    const canPayInvoices = String(profile.role) === 'supervisor'
+      ? 1
+      : input.canPayInvoices === undefined
+        ? Number(profile.can_pay_invoices ?? 0)
+        : input.canPayInvoices ? 1 : 0
+    this.db.prepare('UPDATE company_profiles SET display_name = ?, status = ?, can_pay_invoices = ?, password_hash = ?, updated_at = ? WHERE id = ?')
+      .run(input.displayName?.trim() || String(profile.display_name), input.status ?? String(profile.status), canPayInvoices, input.password ? hashPassword(input.password) : String(profile.password_hash), now, id)
     if (input.status === 'Inactivo') {
       for (const [token, session] of this.sessions) if (session.profileId === id) this.sessions.delete(token)
     }
-    return this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE id = ?').get(id)
+    return this.db.prepare('SELECT id, account_id AS accountId, username, display_name AS displayName, role, status, can_pay_invoices AS canPayInvoices, created_at AS createdAt, updated_at AS updatedAt FROM company_profiles WHERE id = ?').get(id)
+  }
+
+  assertCanPayInvoices(authorization?: string) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active) throw new UnauthorizedException('Inicia sesión para pagar facturas')
+    const profileId = active.session.profileId
+    if (!profileId) throw new ForbiddenException('La sesión no tiene un perfil activo')
+    const accountId = active.session.accountId ?? active.session.userId
+    const profile = this.db.prepare('SELECT role, can_pay_invoices FROM company_profiles WHERE id = ? AND account_id = ?').get(profileId, accountId) as unknown as { role?: string; can_pay_invoices?: number } | undefined
+    if (!profile) throw new NotFoundException('Perfil activo no encontrado')
+    if (!profileCanPayInvoices(profile.role, profile.can_pay_invoices)) {
+      throw new ForbiddenException('Este perfil no puede pagar facturas')
+    }
   }
 
   changeOwnPassword(authorization: string | undefined, input: { currentPassword: string; newPassword: string }) {
@@ -876,6 +905,22 @@ export class OperationsStore implements OnModuleDestroy {
     return status ? clientFiltered.filter((trip) => trip.status === status) : clientFiltered
   }
   listDrivers() { return this.drivers }
+
+  getCurrentDriver(authorization?: string) {
+    const active = this.sessionFromAuthorization(authorization)
+    if (!active || active.session.role !== 'driver') {
+      throw new UnauthorizedException('Inicia sesión como conductor para consultar tu perfil')
+    }
+    const email = active.session.email.trim().toLowerCase()
+    const account = this.db.prepare('SELECT name FROM app_users WHERE id = ?').get(active.session.userId) as unknown as { name?: string } | undefined
+    const sessionName = account?.name?.trim().toLowerCase() ?? ''
+    const driver = this.drivers.find((candidate) => candidate.email?.trim().toLowerCase() === email)
+      ?? this.drivers.find((candidate) => candidate.id === active.session.userId)
+      ?? this.drivers.find((candidate) => candidate.name.trim().toLowerCase() === sessionName)
+    if (!driver) throw new NotFoundException('No se encontró el conductor de esta sesión')
+    return driver
+  }
+
   listClients() { return this.clients }
   listIncidents() { return this.incidents }
 
@@ -1169,6 +1214,7 @@ export class OperationsStore implements OnModuleDestroy {
   updateDriver(id: string, input: { name?: string; phone?: string; email?: string; vehicle?: string; plate?: string; external?: boolean; licenseNo?: string; licenseExp?: string; docNo?: string; notes?: string; licenseCategories?: string; bloodType?: string; residence?: string; emergencyContact1Name?: string; emergencyContact1Phone?: string; emergencyContact2Name?: string; emergencyContact2Phone?: string; emergencyContact3Name?: string; emergencyContact3Phone?: string }) {
     const driver = this.drivers.find((candidate) => candidate.id === id)
     if (!driver) throw new NotFoundException('Conductor no encontrado')
+    const previousName = driver.name
     if (input.licenseExp && new Date(`${input.licenseExp}T23:59:59`).getTime() < Date.now()) throw new BadRequestException('La fecha de vencimiento de la licencia no puede estar vencida')
     if (input.name !== undefined) driver.name = input.name.trim()
     if (input.phone !== undefined) driver.phone = input.phone.trim()
@@ -1189,8 +1235,18 @@ export class OperationsStore implements OnModuleDestroy {
     if (input.emergencyContact2Phone !== undefined) driver.emergencyContact2Phone = input.emergencyContact2Phone
     if (input.emergencyContact3Name !== undefined) driver.emergencyContact3Name = input.emergencyContact3Name
     if (input.emergencyContact3Phone !== undefined) driver.emergencyContact3Phone = input.emergencyContact3Phone
+    if (previousName !== driver.name) {
+      this.db.prepare('UPDATE trips SET driver = ? WHERE driver = ?').run(driver.name, previousName)
+    }
     this.db.prepare('UPDATE drivers SET name = ?, phone = ?, email = ?, vehicle = ?, plate = ?, external = ?, license_no = ?, license_exp = ?, doc_no = ?, notes = ?, license_categories = ?, blood_type = ?, residence = ?, emergency_contact_1_name = ?, emergency_contact_1_phone = ?, emergency_contact_2_name = ?, emergency_contact_2_phone = ?, emergency_contact_3_name = ?, emergency_contact_3_phone = ? WHERE id = ?')
       .run(driver.name, driver.phone, driver.email ?? '', driver.vehicle, driver.plate, driver.external ? 1 : 0, driver.licenseNo ?? '', driver.licenseExp ?? '', driver.docNo ?? '', driver.notes ?? '', driver.licenseCategories ?? '', driver.bloodType ?? '', driver.residence ?? '', driver.emergencyContact1Name ?? '', driver.emergencyContact1Phone ?? '', driver.emergencyContact2Name ?? '', driver.emergencyContact2Phone ?? '', driver.emergencyContact3Name ?? '', driver.emergencyContact3Phone ?? '', id)
+    if (driver.email?.trim()) {
+      this.db.prepare('UPDATE app_users SET name = ?, phone = ? WHERE id = ? OR lower(email) = lower(?)')
+        .run(driver.name, driver.phone, id, driver.email.trim())
+    } else {
+      this.db.prepare('UPDATE app_users SET name = ?, phone = ? WHERE id = ? OR name = ?')
+        .run(driver.name, driver.phone, id, previousName)
+    }
     return driver
   }
 
@@ -1661,8 +1717,15 @@ export class OperationsStore implements OnModuleDestroy {
     const clientAccount = this.clients.find((candidate) =>
       candidate.email.trim().toLowerCase() === normalized,
     )
-    const driverId = effectiveRole === 'driver' ? (demoDrivers[normalized] ?? 'drv-006') : undefined
-    const driver = driverId ? this.drivers.find((candidate) => candidate.id === driverId) : undefined
+    const demoDriverId = demoDrivers[normalized]
+    const accountName = panelUser?.name?.trim().toLowerCase() ?? ''
+    const driver = effectiveRole === 'driver'
+      ? this.drivers.find((candidate) => candidate.email?.trim().toLowerCase() === normalized)
+        ?? this.drivers.find((candidate) => candidate.id === panelUser?.id)
+        ?? this.drivers.find((candidate) => candidate.name.trim().toLowerCase() === accountName)
+        ?? this.drivers.find((candidate) => candidate.id === demoDriverId)
+        ?? this.drivers.find((candidate) => candidate.id === 'drv-006')
+      : undefined
     const userId = panelUser?.id ?? driver?.id ?? (effectiveRole === 'company' ? 'cli-001' : 'admin-001')
     const revoked = this.db.prepare('SELECT session_state FROM app_users WHERE id = ?').get(userId)
     if (revoked && String((revoked as { session_state: string }).session_state) === 'Cerrada') {
@@ -1836,22 +1899,25 @@ export class OperationsStore implements OnModuleDestroy {
         { latitude: 12.114, longitude: -86.244, label: 'Destino' },
       )
     }
+    const headingToPickup = trip.status === 'Asignado'
+    const targetLatitude = headingToPickup ? trip.originLat : trip.destinationLat
+    const targetLongitude = headingToPickup ? trip.originLng : trip.destinationLng
     const routingOrigin = driverLocation ?? (Number.isFinite(trip.originLat) && Number.isFinite(trip.originLng)
       ? { latitude: Number(trip.originLat), longitude: Number(trip.originLng) }
       : null)
-    const roadRoute = routingOrigin && Number.isFinite(trip.destinationLat) && Number.isFinite(trip.destinationLng)
-      ? await this.mapsRouting.getDrivingRoute(routingOrigin.latitude, routingOrigin.longitude, Number(trip.destinationLat), Number(trip.destinationLng))
+    const roadRoute = routingOrigin && driverLocation && Number.isFinite(targetLatitude) && Number.isFinite(targetLongitude)
+      ? await this.mapsRouting.getDrivingRoute(routingOrigin.latitude, routingOrigin.longitude, Number(targetLatitude), Number(targetLongitude))
       : null
     const route = roadRoute?.points.map((point, index) => ({
       ...point,
-      label: index === 0 ? (driverLocation ? 'Conductor' : 'Recogida') : index === roadRoute.points.length - 1 ? 'Destino' : 'Ruta',
+      label: index === 0 ? (driverLocation ? 'Conductor' : 'Recogida') : index === roadRoute.points.length - 1 ? (headingToPickup ? 'Recogida' : 'Destino') : 'Ruta',
     })) ?? fallbackRoute
     const driver = this.drivers.find((candidate) => candidate.name.toLowerCase() === trip.driver.toLowerCase())
     const currentLocationLabel = driverLocation
       ? 'Ubicación actual del conductor'
-      : trip.status === 'En entrega'
-        ? trip.destination
-        : trip.origin
+      : headingToPickup
+        ? trip.origin
+        : trip.destination
     return {
       tripId: trip.id,
       status: trip.status,
@@ -1898,12 +1964,19 @@ export class OperationsStore implements OnModuleDestroy {
     Anulado: [],
   }
 
-  updateTripStatus(id: string, status: TripStatus, reason?: string) {
+  updateTripStatus(id: string, status: TripStatus, reason?: string, deliveryCode?: string) {
     const trip = this.getTrip(id)
     if (status === trip.status) return trip
     const allowed = this.allowedTransitions[trip.status]
     if (!allowed.includes(status)) {
       throw new BadRequestException(`No se puede pasar el viaje de ${trip.status} a ${status}`)
+    }
+    if (status === 'Completado') {
+      const expected = trip.id.trim().replace(/^#/, '').toLowerCase()
+      const received = String(deliveryCode ?? '').trim().replace(/^#/, '').toLowerCase()
+      if (!received || received !== expected) {
+        throw new BadRequestException('El código de entrega no coincide con el viaje')
+      }
     }
     const normalizedReason = String(reason ?? '').trim()
     if ((status === 'Cancelado' || status === 'Anulado') && normalizedReason.length < 5) {

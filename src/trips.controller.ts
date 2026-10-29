@@ -14,6 +14,11 @@ class UpdateTripStatusDto {
   @IsString()
   @IsNotEmpty()
   reason?: string
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  deliveryCode?: string
 }
 
 class UpdateTripPaymentDto {
@@ -91,7 +96,7 @@ export class TripsController {
   @ApiOperation({ summary: 'Transición de estado del viaje (en camino, en entrega, completado, anulado…)' })
   updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto, @Headers('authorization') authorization?: string) {
     this.store.getTrip(id, authorization)
-    return this.store.updateTripStatus(id, body.status, body.reason)
+    return this.store.updateTripStatus(id, body.status, body.reason, body.deliveryCode)
   }
 
   @Patch(':id/schedule')
@@ -104,7 +109,10 @@ export class TripsController {
   @Patch(':id/payment')
   @ApiOperation({ summary: 'Registrar el pago del viaje: efectivo, transferencia, tarjeta, financiamiento o contra entrega; la fecha de cobro se calcula desde el crédito del cliente.' })
   updatePayment(@Param('id') id: string, @Body() body: UpdateTripPaymentDto, @Headers('authorization') authorization?: string) {
-    this.store.getTrip(id, authorization)
+    const trip = this.store.getTrip(id, authorization)
+    if (['Completado', 'Finalizado', 'Entregado', 'Entregada'].includes(trip.status)) {
+      this.store.assertCanPayInvoices(authorization)
+    }
     return this.store.updateTripPayment(id, { method: body.method as Trip['paymentMethod'], ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate })
   }
 
