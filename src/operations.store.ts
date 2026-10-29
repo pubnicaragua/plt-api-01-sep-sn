@@ -691,9 +691,8 @@ export class OperationsStore implements OnModuleDestroy {
 
   private findProfileLogin(identifier: string, password: string) {
     const normalized = identifier.trim().toLowerCase()
-    const rows = (normalized.includes('@')
-      ? this.db.prepare("SELECT p.*, u.email, u.name AS account_name, u.status AS account_status FROM company_profiles p JOIN app_users u ON u.id = p.account_id WHERE lower(u.email) = ? AND p.status = 'Activo' AND u.status = 'Activo'").all(normalized)
-      : this.db.prepare("SELECT p.*, u.email, u.name AS account_name, u.status AS account_status FROM company_profiles p JOIN app_users u ON u.id = p.account_id WHERE lower(p.username) = ? AND p.status = 'Activo' AND u.status = 'Activo'").all(normalized)) as unknown as Array<Record<string, unknown>>
+    if (normalized.includes('@')) return undefined
+    const rows = this.db.prepare("SELECT p.*, u.email, u.name AS account_name, u.status AS account_status FROM company_profiles p JOIN app_users u ON u.id = p.account_id WHERE lower(p.username) = ? AND p.status = 'Activo' AND u.status = 'Activo'").all(normalized) as unknown as Array<Record<string, unknown>>
     const matches = rows.filter((row) => verifyPassword(password, String(row.password_hash ?? '')))
     if (matches.length > 1) throw new UnauthorizedException('Las credenciales corresponden a más de un perfil')
     return matches[0]
@@ -1635,32 +1634,25 @@ export class OperationsStore implements OnModuleDestroy {
   login(input: { email: string; password?: string; role: 'company' | 'driver' | 'admin' }) {
     const normalized = input.email.trim().toLowerCase()
     const panelUser = this.db.prepare('SELECT id, name, email, phone, role, status, session_state, password_hash FROM app_users WHERE lower(email) = ?').get(normalized) as unknown as { id: string; name: string; email: string; phone: string; role: string; status: string; session_state?: string; password_hash: string } | undefined
+    const demoDrivers: Record<string, string> = {
+      'carlos.diaz@incoex.com.ni': 'drv-006',
+      'jose.martinez@incoex.com.ni': 'drv-007',
+      'conductor@incoex.com.ni': 'drv-006',
+    }
     if (!panelUser && input.password) {
       const profile = this.findProfileLogin(normalized, input.password)
       if (profile) {
         const accessToken = this.issueSession(String(profile.account_id), String(profile.email), 'corporate', String(profile.id), String(profile.account_id))
         return this.profileResponse(profile, accessToken)
       }
-      if (!normalized.includes('@')) throw new UnauthorizedException('Credenciales incorrectas para este perfil')
+      if (input.role === 'company' || !normalized.includes('@')) throw new UnauthorizedException('Credenciales incorrectas para este perfil')
     }
     const stored = panelUser
     if (panelUser && panelUser.status !== 'Activo') throw new UnauthorizedException('Este usuario está inactivo; solicita que un administrador lo active')
     if (stored && stored.password_hash) {
       if (!input.password || !verifyPassword(input.password, stored.password_hash)) {
-        if (panelUser?.role === 'corporate' && input.password) {
-          const profile = this.findProfileLogin(normalized, input.password)
-          if (profile) {
-            const accessToken = this.issueSession(String(profile.account_id), String(profile.email), 'corporate', String(profile.id), String(profile.account_id))
-            return this.profileResponse(profile, accessToken)
-          }
-        }
         throw new UnauthorizedException('Credenciales incorrectas para este usuario')
       }
-    }
-    const demoDrivers: Record<string, string> = {
-      'carlos.diaz@incoex.com.ni': 'drv-006',
-      'jose.martinez@incoex.com.ni': 'drv-007',
-      'conductor@incoex.com.ni': 'drv-006',
     }
     const effectiveRole = panelUser?.role ?? input.role
     const supervisorProfileId = panelUser?.role === 'corporate'
