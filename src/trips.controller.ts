@@ -1,10 +1,16 @@
-import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, UnauthorizedException, UploadedFile, UseInterceptors } from '@nestjs/common'
 import { ApiOperation, ApiTags } from '@nestjs/swagger'
 import { IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Min } from 'class-validator'
 import type { Trip, TripStatus } from './domain'
 import { AssignTripDto } from './dto/assign-trip.dto'
 import { CreateTripDto } from './dto/create-trip.dto'
 import { OperationsStore } from './operations.store'
+import { FileInterceptor } from '@nestjs/platform-express'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { extname, resolve } from 'node:path'
+
+const PICKUP_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.webp']
+const PICKUP_EVIDENCE_DIR = resolve(process.env.INCOEX_EVIDENCE_PATH ?? 'data/uploads/evidence')
 
 class UpdateTripStatusDto {
   @IsIn(['Pendiente', 'Asignado', 'En camino', 'En entrega', 'Completado', 'Cancelado', 'Anulado'])
@@ -97,6 +103,20 @@ export class TripsController {
   updateStatus(@Param('id') id: string, @Body() body: UpdateTripStatusDto, @Headers('authorization') authorization?: string) {
     this.store.getTrip(id, authorization)
     return this.store.updateTripStatus(id, body.status, body.reason, body.deliveryCode)
+  }
+
+  @Post(':id/pickup-confirmation')
+  @ApiOperation({ summary: 'Validar código y foto de la recogida del conductor' })
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 5 * 1024 * 1024 } }))
+  pickupConfirmation(@Param('id') id: string, @UploadedFile() file: Express.Multer.File | undefined, @Body('deliveryCode') deliveryCode: string, @Headers('authorization') authorization?: string) {
+    if (!file) throw new BadRequestException('Debes tomar una foto del paquete recogido')
+    const extension = extname(file.originalname).toLowerCase()
+    if (!PICKUP_IMAGE_EXTENSIONS.includes(extension)) throw new BadRequestException('La evidencia de recogida debe ser una foto JPG, PNG o WEBP')
+    const safeId = id.replace(/[^a-zA-Z0-9_-]/g, '') || 'trip'
+    mkdirSync(PICKUP_EVIDENCE_DIR, { recursive: true })
+    const filename = `pickup-${safeId}-${Date.now()}${extension}`
+    writeFileSync(resolve(PICKUP_EVIDENCE_DIR, filename), file.buffer)
+    return this.store.confirmPickupWithEvidence(authorization, id, deliveryCode, { filename, url: `/api/uploads/evidence/${filename}` })
   }
 
   @Patch(':id/schedule')

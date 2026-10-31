@@ -109,6 +109,12 @@ export class OperationsStore implements OnModuleDestroy {
         recipient_phone TEXT,
         fragile INTEGER NOT NULL DEFAULT 0
       );
+      CREATE TABLE IF NOT EXISTS trip_pickup_evidence (
+        trip_id TEXT PRIMARY KEY,
+        filename TEXT NOT NULL,
+        url TEXT NOT NULL,
+        created_at INTEGER NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS company_profiles (
         id TEXT PRIMARY KEY,
         account_id TEXT NOT NULL,
@@ -2020,6 +2026,20 @@ export class OperationsStore implements OnModuleDestroy {
     const color = status === 'Cancelado' || status === 'Anulado' ? 'red' : status === 'Completado' ? 'mint' : 'blue'
     this.recordHistory(historyType, `Viaje ${status.toLowerCase()}`, `Viaje ${trip.id} · ${trip.client}${trip.cancelReason ? ` · Motivo: ${trip.cancelReason}` : ''}`, color)
     return trip
+  }
+
+  confirmPickupWithEvidence(authorization: string | undefined, id: string, deliveryCode: string, evidence: { filename: string; url: string }) {
+    const driver = this.getCurrentDriver(authorization)
+    const trip = this.getTrip(id, authorization)
+    if (trip.driver !== driver.name) throw new ForbiddenException('Este viaje no está asignado al conductor de la sesión')
+    if (trip.status !== 'Asignado') throw new BadRequestException('El viaje debe estar asignado para confirmar la recogida')
+    const expected = trip.id.trim().replace(/^#/, '').toLowerCase()
+    const received = String(deliveryCode ?? '').trim().replace(/^#/, '').toLowerCase()
+    if (!received || received !== expected) throw new BadRequestException('El código de entrega no coincide con el viaje')
+    const updated = this.updateTripStatus(id, 'En camino')
+    this.db.prepare('INSERT INTO trip_pickup_evidence (trip_id, filename, url, created_at) VALUES (?, ?, ?, ?) ON CONFLICT(trip_id) DO UPDATE SET filename = excluded.filename, url = excluded.url, created_at = excluded.created_at')
+      .run(id, evidence.filename, evidence.url, Date.now())
+    return updated
   }
 
   exportCsv(collection: 'trips' | 'drivers' | 'clients' | 'incidents' | 'packages' | 'vehicles') {
