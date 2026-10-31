@@ -81,7 +81,7 @@ export interface Trip {
   paymentRef?: string
   paymentAmount?: number
   paymentDate?: string
-  paymentStatus?: 'Sin pagar' | 'Parcial' | 'Pagado'
+  paymentStatus?: 'Sin pagar' | 'Parcial' | 'Pagado' | 'Crédito'
   dueDate?: string
   cancelReason?: string
 }

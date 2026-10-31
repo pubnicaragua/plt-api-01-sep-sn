@@ -61,6 +61,13 @@ function currentMonthKey(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
 }
 
+function updateDescriptionValue(description: string | undefined, label: string, value: string) {
+  const source = description?.trim() ?? ''
+  const pattern = new RegExp(`(${label}\\s*:\\s*)[^·]+`, 'i')
+  if (pattern.test(source)) return source.replace(pattern, `$1${value}`)
+  return source ? `${source} · ${label}: ${value}` : `${label}: ${value}`
+}
+
 function formatDateOffset(daysAhead: number) {
   const date = new Date()
   date.setDate(date.getDate() + daysAhead)
@@ -1630,17 +1637,28 @@ export class OperationsStore implements OnModuleDestroy {
     return trip
   }
 
-  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string }) {
+  updateTripPayment(id: string, input: { method?: Trip['paymentMethod']; ref?: string; amount?: number; date?: string; dueDate?: string; status?: Trip['paymentStatus']; productStatus?: string }) {
     const trip = this.getTrip(id)
     if (input.method !== undefined) trip.paymentMethod = input.method
     if (input.ref !== undefined) trip.paymentRef = input.ref
     if (input.amount !== undefined) trip.paymentAmount = Math.max(0, Number(input.amount) || 0)
     if (input.date !== undefined) trip.paymentDate = input.date
     if (input.dueDate !== undefined) trip.dueDate = input.dueDate
-    const expected = trip.estimatedCostCs ?? 0
-    if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
-    else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
-    else trip.paymentStatus = 'Sin pagar'
+    if (input.productStatus !== undefined) {
+      trip.description = updateDescriptionValue(
+        trip.description,
+        'Estado factura producto',
+        input.productStatus,
+      )
+    }
+    if (input.status !== undefined) {
+      trip.paymentStatus = input.status
+    } else if (input.amount !== undefined) {
+      const expected = trip.estimatedCostCs ?? 0
+      if ((trip.paymentAmount ?? 0) >= expected && expected > 0) trip.paymentStatus = 'Pagado'
+      else if ((trip.paymentAmount ?? 0) > 0) trip.paymentStatus = 'Parcial'
+      else trip.paymentStatus = 'Sin pagar'
+    }
     this.persistTrip(trip)
     return trip
   }

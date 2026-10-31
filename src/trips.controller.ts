@@ -47,6 +47,14 @@ class UpdateTripPaymentDto {
   @IsOptional()
   @IsString()
   dueDate?: string
+
+  @IsOptional()
+  @IsIn(['Sin pagar', 'Parcial', 'Pagado', 'Crédito'])
+  status?: Trip['paymentStatus']
+
+  @IsOptional()
+  @IsIn(['Pendiente', 'Pagado'])
+  productStatus?: string
 }
 
 class UpdateTripFareDto {
@@ -133,7 +141,7 @@ export class TripsController {
     if (['Completado', 'Finalizado', 'Entregado', 'Entregada'].includes(trip.status)) {
       this.store.assertCanPayInvoices(authorization)
     }
-    return this.store.updateTripPayment(id, { method: body.method as Trip['paymentMethod'], ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate })
+    return this.store.updateTripPayment(id, { method: body.method as Trip['paymentMethod'], ref: body.ref, amount: body.amount, date: body.date, dueDate: body.dueDate, status: body.status, productStatus: body.productStatus })
   }
 
   @Patch(':id/fare')
